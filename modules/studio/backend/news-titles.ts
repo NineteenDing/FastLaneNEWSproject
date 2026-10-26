@@ -33,6 +33,14 @@ export const newsTitleQueue=defineQueue<{items:Item[]}>({name:"studio.news.title
 /** Compatibility for already-paid English analyses; new analyses translate their title in the same call. */
 export async function scheduleNewsTitles(retryFailed=false){
   if(!await modelWorkAllowed())return{queued:false};
+  await ensureQueue(newsTitleQueue.name,newsTitleQueue.options);
+  if(retryFailed){
+    const failed=await sql<{data:{items:Item[]}}[]>`SELECT data FROM pgboss.job WHERE name=${newsTitleQueue.name}
+      AND state IN ('failed','cancelled') ORDER BY completed_on DESC NULLS LAST LIMIT 20`;
+    for(const job of failed)if((await savedNewsTitle(sql,job.data.items[0]?.title??''))===null)
+      return {queued:!!await enqueueOn(newsTitleQueue,job.data,{singletonKey:"news-title-batch"})};
+    return {queued:false};
+  }
   const rows=await sql<{title:string}[]>`SELECT DISTINCT a.title FROM articles a JOIN studio_public_news n ON n.article_id=a.id
     JOIN publications p ON p.article_id=a.id JOIN sources s ON s.id=a.source_id LEFT JOIN editorial_overrides o ON o.article_id=a.id
     WHERE n.decision->>'allowed'='true' AND s.participation_mode='editorial' AND o.visibility IS DISTINCT FROM 'withdrawn'
@@ -40,7 +48,7 @@ export async function scheduleNewsTitles(retryFailed=false){
   const items:Item[]=[];for(const row of rows)if(!await savedNewsTitle(sql,row.title))items.push({key:textKey(row.title),title:row.title});
   if(!items.length)return{queued:false};
   await ensureQueue(newsTitleQueue.name,newsTitleQueue.options);
-  const failed=retryFailed?[]:await sql<{data:{items:Item[]}}[]>`SELECT data FROM pgboss.job WHERE name=${newsTitleQueue.name} AND state IN ('failed','cancelled') ORDER BY completed_on DESC NULLS LAST LIMIT 100`;
+  const failed=await sql<{data:{items:Item[]}}[]>`SELECT data FROM pgboss.job WHERE name=${newsTitleQueue.name} AND state IN ('failed','cancelled') ORDER BY completed_on DESC NULLS LAST LIMIT 100`;
   const blocked=new Set(failed.flatMap(row=>row.data.items.map(item=>item.key)));
   const batch=items.filter(item=>!blocked.has(item.key)).slice(0,20);if(!batch.length)return{queued:false};
   const pendingKey=sha256(JSON.stringify(batch));

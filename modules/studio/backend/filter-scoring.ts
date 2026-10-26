@@ -88,9 +88,15 @@ export async function rescoreCurrentDirections(db: Db, result: TopicRecommendati
   const ids = result.sharedSignals.events.map(event => event.id).filter(id => z.uuid().safeParse(id).success);
   const observed = await sharedEventObservations(db, ids, now, policy), asOf = now.toISOString();
   const records=await scoringRecords(db,db`h.material_id=ANY(${materials.map(material=>material.id)}::text[])`);
+  const metrics=await db<Array<{id:string;metrics:TopicBatchMaterial["metrics"];observedAt:Date}>>`SELECT 'creator:'||p.id AS id,o.metrics,o.observed_at AS "observedAt"
+    FROM studio_creator_posts p JOIN LATERAL(SELECT metrics,observed_at FROM studio_creator_observations observation WHERE observation.post_id=p.id AND observed_at<=${now}
+      ORDER BY observed_at DESC,(metrics=p.content->'metrics') DESC,id DESC LIMIT 1) o ON true
+    WHERE 'creator:'||p.id=ANY(${materials.map(material=>material.id)}::text[])`;
   const currentMaterials=materials.flatMap(material=>{
     const record=records.find(record=>record.materialId===material.id&&record.sourceKey===historyEvidenceKey(material));
-    return record?.analysis?[{material,analysis:{materialId:material.id,state:"completed" as const,...record.analysis,receiptId:null,error:null}}]:[];
+    const latest=metrics.find(row=>row.id===material.id),current=latest?{...material,metrics:latest.metrics,updatedAt:latest.observedAt.toISOString(),
+      observations:[{observedAt:latest.observedAt.toISOString(),metrics:latest.metrics}]}:material;
+    return record?.analysis?[{material:current,analysis:{materialId:material.id,state:"completed" as const,...record.analysis,receiptId:null,error:null}}]:[];
   });
   const local=freezeSharedTopicSignals(currentMaterials,asOf,policy.propagation,policy.heat,policy.editorial);
   const events = result.sharedSignals.events.map(event => {
@@ -108,7 +114,7 @@ export async function rescoreCurrentDirections(db: Db, result: TopicRecommendati
       const refreshed=local?.candidates.find(current=>current.materialId===candidate.materialId);
       const material=materials.find(material=>material.id===candidate.materialId),record=records.find(record=>record.materialId===candidate.materialId);
       if(!refreshed||!record||!material||record.sourceKey!==historyEvidenceKey(material))return{...candidate,path:null,reason:"当前原文版本或事实依据已变化，请更新草案"};
-      const route=scoreMaterialV2({...record,private:false},observed.get(candidate.eventId),asOf,policy).route;
+      const route=candidate.eventId.startsWith("material:")?refreshed.route:scoreMaterialV2({...record,private:false},observed.get(candidate.eventId),asOf,policy).route;
       const path=route==="major_event"?"major_event" as const:route==="verified_breakout"?"breakout" as const
         :route==="general_ai_selected"?"general_ai" as const:route==="market_reference"?"market_reference" as const
         :route==="direct_all"||route==="direct_selected"?"direct" as const:null;
