@@ -3,6 +3,8 @@
 import type { ReportCitation, ReportDetail, ReportIndexEntry, ReportNavigationEntry, ReportKind } from "@aihot/contracts/site";
 import { REPORTS, SITE, withSubject } from "@aihot/site";
 import { sql } from "../db.ts";
+import { serverModules } from "../modules.ts";
+
 import { cached, type Cached } from "../lib/cache.ts";
 import { proxiedImage, proxiedImageSet } from "../media/imgproxy.ts";
 import { isoWeekRange, monthRange } from "@aihot/contracts/time";
@@ -11,6 +13,8 @@ import { publicSourceName } from "./rules.ts";
 import { listedCondition, publicationNeedsRevalidation, reportReadableCondition } from "./scope.ts";
 
 export type { ReportKind };
+
+const frozenReports = () => serverModules().some(module => module.publication?.reportSnapshot === "frozen");
 
 interface ReportRow {
   kind: ReportKind;
@@ -34,7 +38,7 @@ interface Availability {
 
 async function availability(ids: string[]): Promise<Map<string, Availability>> {
   const out = new Map<string, Availability>();
-  if (ids.length === 0) return out;
+  if (ids.length === 0 || frozenReports()) return out;
   const rows = await sql<{ id: string; available: boolean; summary: string | null; first_party: boolean; source_id: string; source_name: string | null; icon_url: string | null; at: Date | null }[]>`
     SELECT p.article_id AS id, (${listedCondition(new Date())}) AS available, p.summary, (s.tier = 'T1') AS first_party, p.source_id, s.name AS source_name, s.icon_url,
       coalesce(p.published_at, p.discovered_at) AS at
@@ -60,7 +64,7 @@ async function availability(ids: string[]): Promise<Map<string, Availability>> {
 /** Ids among `ids` that are no longer public. Ids absent from this database stay cited as published. */
 async function unavailableIds(ids: string[]): Promise<Set<string>> {
   const unique = [...new Set(ids.filter(Boolean))];
-  if (!unique.length) return new Set();
+  if (!unique.length || frozenReports()) return new Set();
   if (publicationNeedsRevalidation()) {
     const current = await availability(unique);
     return new Set(unique.filter(id => !current.get(id)?.available));
@@ -241,7 +245,7 @@ function citationFrom(raw: Record<string, any>, avail: Map<string, Availability>
     sourceName: publicSourceName(metadata.sourceName),
     sourceIconUrl: a?.sourceIcon ? proxiedImage(a.sourceIcon, "avatar") : null,
     ...(iconSrcSet ? { sourceIconSrcSet: iconSrcSet } : {}),
-    firstParty: a?.firstParty ?? false,
+    firstParty: a?.firstParty ?? raw.firstParty ?? false,
     available: true,
   };
 }
@@ -387,7 +391,7 @@ export async function loadReport(kind: ReportKind, key: string): Promise<ReportD
     sections,
     flashes: (c.flashes ?? []).map(cite),
     cover,
-    metrics: {
+    metrics: frozenReports() ? c.metrics : {
       ...c.metrics,
       ...(c.metrics?.firstPartyEvents !== undefined ? { firstPartyEvents: all.filter((i) => i.firstParty).length } : {}),
       ...(c.metrics?.sourcesCount !== undefined ? { sourcesCount: citedSources(c, kind === "daily" ? "daily" : "periodic", avail) } : {}),

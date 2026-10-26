@@ -277,6 +277,7 @@ export async function loadHot(): Promise<HotResponse> {
         rank: e.rank,
         story: { publicId: e.storyPublicId, title: e.title },
         heat: e.heat,
+        ...(e.heatBasis ? { heatBasis:e.heatBasis } : {}),
         trend: e.trend,
         trendPct: e.trendPct,
         badges: e.badges,

@@ -95,11 +95,11 @@ export function FeedBar({ base, category, channel }: { base: "/" | "/all"; categ
 export function FeedDates({ base }: { base: "/" | "/all" }) {
   const [params] = useSearchParams(), day = params.get("day") ?? "", now = Date.now();
   return <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line-soft pb-3 text-[13px] text-ink-3">
-    <Link to={hrefWith(base, params, { day: null })} aria-current={!day ? "page" : undefined} className={!day ? "font-semibold text-accent" : "hover:text-ink"}>最近48小时</Link>
+    <Link to={hrefWith(base, params, { day: null })} aria-current={!day ? "page" : undefined} className={!day ? "font-semibold text-accent" : "hover:text-ink"}>{base === "/all" ? "最近五天" : "最近48小时"}</Link>
     <Form method="get" action={base} className="flex items-center gap-2">
       {["q", "category", "channel", "tag", "tab"].flatMap(name => params.get(name) ? [<input key={name} type="hidden" name={name} value={params.get(name)!} />] : [])}
       <label className="flex items-center gap-2">日期 <input key={day} type="date" name="day" aria-label="按日期查看新闻" defaultValue={day}
-        min={beijingDate(now - 48 * 3600000)} max={beijingDate(now)} onChange={event => event.currentTarget.form?.requestSubmit()}
+        min={beijingDate(now - (base === "/all" ? 120 : 48) * 3600000)} max={beijingDate(now)} onChange={event => event.currentTarget.form?.requestSubmit()}
         className="min-w-0 rounded-control border border-line bg-surface px-2 py-1.5 text-ink" /></label>
       <span className="text-[12px] text-ink-4">香港时间</span>
     </Form>

@@ -193,14 +193,14 @@ test("Flash已返回但日报修订写盘失败，重试使用原付费回执，
   assert.equal(state.state, "completed"); assert.equal(state.revision, 2); assert.equal(dailyCalls, paid + 1, "恢复不能再买一次已完成编排");
 });
 
-test("日报引用撤回后，依赖这些材料的综合导读也即时隐藏，历史索引和独立快照仍存在", async () => {
+test("已出刊日报保存批准时的事实快照，动态撤回和后续评分不改变报纸内容", async () => {
   const before = await app.inject({ url: `/api/site/reports/daily/${day}` }); assert.ok(before.json().overview);
   const paid = calls;
   assert.equal((await app.inject({ method: "POST", url: `/api/admin/content/${id}/visibility`, headers,
     payload: { version: 0, visibility: "withdrawn", reason: "日报原材料更正并下架" } })).statusCode, 200);
   const response = await app.inject({ url: `/api/site/reports/daily/${day}` }); assert.equal(response.statusCode, 200);
-  assert.equal(response.json().overview, null, "不能在引用已下架后继续公开由其编写的独立导读");
-  assert.equal(response.json().lead, null); assert.equal(response.json().sections[0].items[0].available, false);
+  assert.equal(response.json().overview, before.json().overview);
+  assert.deepEqual(response.json().lead, before.json().lead);assert.deepEqual(response.json().sections,before.json().sections);
   assert.ok((await app.inject({ url: "/api/site/reports/daily" })).json().items.some((entry: { key: string }) => entry.key === day));
   assert.equal(calls, paid);
 });

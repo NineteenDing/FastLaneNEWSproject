@@ -18,6 +18,7 @@ transport.get("https://api.deepseek.com").intercept({ method: "POST", path: "/v1
   calls++;
   const quote = JSON.parse(JSON.parse(String(request.body)).messages.at(-1).content).material.body;
   const unrelated = quote.includes("足球");
+  const level = quote.includes("较弱比对") ? 65 : 95;
   return { statusCode: 200, data: JSON.stringify({ choices: [{ message: { content: JSON.stringify({
     columnId: "models", disposition: "support", summary: quote, reason: "角色制作工具新增参考控制", viewerBenefit: "判断能否改善跨镜头一致性", event: null,
     evidenceQuotes: [quote], entities: [], gates: { audience: true, evidence: true, benefit: true },
@@ -27,11 +28,11 @@ transport.get("https://api.deepseek.com").intercept({ method: "POST", path: "/v1
       scopeQuotes: [quote], facts: [{ text: quote, quotes: [quote] }],
       publicDimensions: { practical: { value: 95, reason: "用于角色制作" }, interest: { value: 95, reason: "创作者关心" }, substance: { value: 95, reason: "有明确变化" } },
       impact: { value: 90, reason: "影响角色制作" },
-      v2: { I: { value: 95, reason: "创作者关心" }, M: { value: 90, reason: "影响角色制作" }, D: { value: 95, reason: "有明确变化" },
-        P: { value: 95, reason: "用于角色制作" }, E: { value: 95, reason: "正文明确" }, X: { value: 90, reason: "参考控制更新" } },
+      v2: { I: { value: level, reason: "创作者关心" }, M: { value: level, reason: "影响角色制作" }, D: { value: level, reason: "有明确变化" },
+        P: { value: level, reason: "用于角色制作" }, E: { value: level, reason: "正文明确" }, X: { value: level, reason: "参考控制更新" } },
       publicSummary: quote, summaryFactIds: [0], primaryIntent: "models", majorEvent: null,
       columnMatches: [{ columnId: "models", value: 95, reason: "工具能力" }], reportingKind: "original", memeEvidence: [],
-      event: { relation: "new", candidateId: null, label: unrelated ? "足球赛况" : "角色控制发布", identity: unrelated ? "足球赛况20261024" : "角色控制发布20261024", quotes: [quote] } },
+      event: { relation: "new", candidateId: null, label: unrelated ? "足球赛况" : "角色控制发布", identity: quote.includes("比对") ? quote : unrelated ? "足球赛况20261024" : "角色控制发布20261024", quotes: [quote] } },
   }) } }], usage: { prompt_tokens: 100, completion_tokens: 100 } }) };
 }).persist();
 after(async () => { setGlobalDispatcher(previous); await transport.close(); await app.close(); await stopBoss(); await closeDb(); });
@@ -55,9 +56,9 @@ test("共享新闻的热点任务沿原计算生成实际不足十条的榜单�
   const hot = schedule("studio.news.hot.schedule"); assert.ok(hot, "共享处理必须启用独立本地热度任务"); await hot.run();
   const response = await app.inject({ url: "/api/site/hot" }); assert.equal(response.statusCode, 200);
   assert.equal(response.json().entries.length, 1); assert.equal(response.json().entries[0].participantCount, 3);
-  assert.equal(response.json().entries[0].sourceCount, 3); assert.equal(response.json().windowHours, 48);
+  assert.equal(response.json().entries[0].sourceCount, 3); assert.equal(response.json().windowHours, 0);
   assert.equal(calls, 1, "三份相同正文只有一次基础理解，热度更新不付费");
-  assert.deepEqual(response.json().entries[0].spark.filter((point: unknown) => point !== null), [], "没有可比观察时不能画走势");
+  assert.ok(response.json().entries[0].spark.filter((point: unknown) => point !== null).length <= 1, "只有当前实测点，不补造过去走势");
 });
 
 test("多个公开新闻源报道的无关热点仍不得进入AI影视热点榜，刷新榜单不重新调用模型", async () => {
@@ -107,7 +108,7 @@ test("来源即时改为私有后，旧榜单不再计算或展示该主体，�
   assert.equal(calls, before);
 });
 
-test("同机构多账号只计一个主体，24小时热度减半，超过48小时退榜且不调用模型", async t => {
+test("同机构多账号只计一个主体，24小时热度减半，超过48小时按衰减竞争仍可在榜且不调用模型", async t => {
   const before = calls;
   const rows = (await app.inject({ url: "/api/admin/studio/news-sources?q=phase2-hot", headers })).json().rows;
   for (const row of rows) assert.equal((await app.inject({ method: "PATCH", url: `/api/admin/sources/${row.id}`, headers,
@@ -125,9 +126,9 @@ test("同机构多账号只计一个主体，24小时热度减半，超过48小�
   await schedule("studio.news.hot.schedule")!.run();
   response = (await app.inject({ url: "/api/site/hot" })).json();
   assert.equal(response.entries[0].participantCount, 2); assert.ok(response.entries[0].heat <= 15 && response.entries[0].heat > 14.5);
-  assert.deepEqual(response.entries[0].spark.filter((point: unknown) => point !== null), [], "落后或新增来源的小时快照不能伪造可比曲线");
+  assert.ok(response.entries[0].spark.filter((point: unknown) => point !== null).length <= 1, "只有当前一条实测记录时不能伪造历史曲线");
   t.mock.timers.setTime(now + 49 * 3600000);
-  assert.equal((await app.inject({ url: "/api/site/hot" })).json().entries.length, 0, "旧快照不能延长48h有效窗口");
+  assert.equal((await app.inject({ url: "/api/site/hot" })).json().entries.length, 1, "公开资格有效的前十事件超过48h仍按衰减竞争");
   assert.equal(calls, before);
 });
 
@@ -142,7 +143,7 @@ test("实际热点页面在桌面和窄屏展示公开事件与来源，没有�
       const response = await page.goto(web.origin + "/hot"); assert.equal(response?.status(), 200);
       await expect(page.getByRole("heading", { level: 1 })).toContainText("热点");
       await expect(page.getByRole("heading", { name: "AI影视热点榜", exact: true })).toBeVisible();
-      await expect(page.getByText("过去48小时，AI影视圈讨论最多的十件事", { exact: false }).filter({ visible: true })).toBeVisible();
+      await expect(page.getByText("按已观测传播热度持续更新，热度衰减与新事件共同决定排名", { exact: false }).filter({ visible: true })).toBeVisible();
       await expect(page.getByRole("link", { name: "角色控制更新", exact: true }).first()).toBeVisible();
       assert.equal(await page.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
       await page.screenshot({ path: `.impeccable/review/phase2-hot-${width}.png`, fullPage: true });
@@ -152,4 +153,18 @@ test("实际热点页面在桌面和窄屏展示公开事件与来源，没有�
     }
     assert.equal(calls, before);
   } finally { await browser.close(); await web.stop(); }
+});
+
+
+test("同5分热度档按新闻价值暂排，单源几分衰减差不冒充可靠的传播差距", async () => {
+  const saved: string[]=[];
+  for (const [suffix, age, body] of [["strong",8,"较强比对：AI视频新增角色控制与明确使用限制。"],["weak",4,"较弱比对：AI视频的影展讨论及观众反应。"]] as const) {
+    saved.push((await upsertMaterial({sourceId:"phase2-hot-2",title:body,url:`https://phase2-hot-2.example/${suffix}`,via:"import",publishedAt:new Date(Date.now()-age*3600000),bodyText:body,bodyStatus:"ok"})).articleId);
+  }
+  await scheduleTopicMaterialAnalyses(); const boss=await getBoss();
+  for (;;) {const [job]=await boss.fetch(topicAnalysisQueue.name);if(!job)break;await topicAnalysisQueue.run([job.data] as never[]);await boss.complete(topicAnalysisQueue.name,job.id);}
+  await schedule("studio.news.publication.schedule")!.run();await schedule("studio.news.hot.schedule")!.run();
+  const entries=(await app.inject({url:"/api/site/hot"})).json().entries;
+  const strong=entries.find((entry:any)=>entry.story.title.includes("较强比对")), weak=entries.find((entry:any)=>entry.story.title.includes("较弱比对"));
+  assert.ok(strong&&weak);assert.ok(strong.heat<weak.heat);assert.ok(strong.rank<weak.rank);assert.equal(strong.heatBasis,"single_source");
 });

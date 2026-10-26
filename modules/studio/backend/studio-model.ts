@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { sql } from "@aihot/backend/db";
 import { chatJson, escapeControlCharsInStrings, type ChatJsonOptions } from "@aihot/backend/providers/llm";
 import { credential } from "@aihot/backend/config";
 import { sha256, stableJson } from "@aihot/backend/lib/ids";
@@ -7,7 +8,7 @@ import { Conflict } from "@aihot/backend/audit";
 import { modelConnection, modelConnectionSecret } from "./model-connection.ts";
 import { modelWorkAllowed } from "./model-operations.ts";
 import { QueueDeferred } from "@aihot/backend/jobs/queue";
-import { ProviderRejectedError } from "@aihot/backend/providers/receipts";
+import { ProviderRejectedError, logicalKeyFor } from "@aihot/backend/providers/receipts";
 import { STUDIO_MODEL } from "../contracts.ts";
 
 type Capability = "studioMaterialAnalysis" | "studioTopicGeneration" | "studioTopicReview" | "studioWriting" | "studioReferenceVision";
@@ -58,11 +59,30 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   const configuredPrice = capability === "studioReferenceVision" ? connection.visionPrice : connection.analysisPrice;
   const price = configuredPrice ?? (fromEnvironment || new URL(connection.baseUrl).origin === "https://api.deepseek.com" ? { inputPerMillion: 2, outputPerMillion: 8 } : null);
   if (!price) throw new Conflict("此服务或模型尚未配置费用估算，未开始模型请求");
+  const shortStructured = capability === "studioMaterialAnalysis" || capability === "studioReferenceVision" || options.subject.startsWith("studio-preview:");
+  const extra = { thinking: { type: shortStructured ? "disabled" : "enabled" } };
+  const connectionId = fromEnvironment ? `studio-environment:${environmentIdentity()}` : `studio-model-connection:${connection.version}`;
+  // Re-validate an already-paid response only for the exact frozen material/model context.
+  // Parser compatibility must not cause a second network request or accept mismatched evidence.
+  if (["studio_material_analysis", "studio_news_title_translation"].includes(options.purpose) && typeof options.user === "string") {
+    const key = logicalKeyFor({service:"llm",model,purpose:options.purpose,subject:options.subject,attemptTag:options.attemptTag,
+      identity:{model,promptVersion:options.promptVersion,system:sha256(options.system),user:sha256(options.user),temperature:options.temperature??0.2,
+        maxTokens:Math.max(options.maxTokens??1500,512)+(shortStructured?0:4000),extra,connection:connectionId}});
+    const rows = await sql<{id:number;response:{choices?:Array<{message?:{content?:string}}>};usage:Record<string,unknown>|null}[]>`SELECT id,response,usage FROM receipts
+      WHERE purpose=${options.purpose} AND subject=${options.subject} AND model=${model} AND status='failed'
+        AND error LIKE 'unusable output:%' AND response IS NOT NULL AND logical_key=${key} ORDER BY id DESC LIMIT 3`;
+    for (const row of rows) {
+      try {
+        const text=row.response.choices?.[0]?.message?.content??"", start=text.indexOf("{"), end=text.lastIndexOf("}");
+        const parsed=options.schema.safeParse(JSON.parse(escapeControlCharsInStrings(text.slice(start,end+1))));
+        if (parsed.success) return {data:parsed.data,receiptId:Number(row.id),reused:true,model,usage:row.usage};
+      } catch { /* Invalid saved output still requires an explicit bounded retry. */ }
+    }
+  }
   const activeConnection = connection;
   return chatJson({ ...options, beforeCall, model: "studio-connection", connection: {
-    model, service: "llm", identity: fromEnvironment ? `studio-environment:${environmentIdentity()}` : `studio-model-connection:${connection.version}`, jsonMode: true, price,
-    ...(capability === "studioMaterialAnalysis" || capability === "studioReferenceVision"
-      ? { extra: { thinking: { type: "disabled" } } } : { reasoningTokens: 4000, extra: { thinking: { type: "enabled" } } }),
+    model, service: "llm", identity: connectionId, jsonMode: true, price, extra,
+    ...(!shortStructured ? { reasoningTokens: 4000 } : {}),
     async request(body, signal) {
       const serialized = JSON.stringify(body);
       if (capability === "studioReferenceVision" && Buffer.byteLength(serialized) > 2 * 1024 ** 2)

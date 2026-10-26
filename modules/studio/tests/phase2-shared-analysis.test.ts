@@ -30,7 +30,8 @@ transport.get("https://api.deepseek.com").intercept({ method: "POST", path: "/v1
     event: "StageDesk角色参考功能发布", evidenceQuotes: [quote], entities: important ? [] : entities,
     gates: { audience: !important, evidence: true, benefit: !important },
     dimensions: { audience: 90, practical: 80, evidence: 90, freshness: 80, demand: null, distinctiveness: 60 },
-    ...(important ? { shared: {
+    ...(important ? { titleZh:"通用模型发布的中文标题", shared: {
+      titleZh: null,
       scope: memeMode ?? "important_ai", scopeReason: "通用模型发布会影响后续创作工具能力，暂不宣称已适配影视", scopeQuotes: [quote],
       facts: [{ text: "通用模型正式发布", quotes: [quote] }],
       publicDimensions: { practical: { value: 10, reason: "尚无直接工作流" }, interest: { value: 80, reason: "重大能力变化" }, substance: { value: 85, reason: "有明确发布事实" } },

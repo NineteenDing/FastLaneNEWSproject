@@ -111,7 +111,7 @@ export const createStudioServer = (resources: {
   internalNotifications: "disabled",
   admin: { passwordUsername: () => config.adminUsername ?? "admin" },
   editorialPipeline: "disabled",
-  publication: { condition: publicNewsCondition, reportCondition: publicReportCondition, reportKinds: ["daily"], revalidate: true, browseWindowHours: 120,
+  publication: { condition: publicNewsCondition, reportCondition: publicReportCondition, reportKinds: ["daily"], reportSnapshot: "frozen", revalidate: true, browseWindowHours: 120,
     hot: { ruleVersion: PUBLIC_HOT_VERSION, calculate: calculatePublicHot, series: publicHeatSeries },
     judgement: publicNewsJudgement, imageAllowed: async url => await publicNewsImageAllowed(url) || await filmBoardImageAllowed(url) },
   on: { materialStored: async ({ id }, db) => { await indexHistoryMaterial(db, "news:" + id); await requestMaterialAnalysis(db, "news:" + id); await requestSourceImages(db, id); } },

@@ -182,6 +182,8 @@ export interface HotParticipant {
 
 
 export interface HotEntryView {
+  /** One report alone is limited observation, not a measured global popularity claim. */
+  heatBasis?: "single_source" | "observed";
   rank: number;
   story: StoryRef;
   heat: number;

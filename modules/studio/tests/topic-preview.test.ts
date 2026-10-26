@@ -20,6 +20,7 @@ import { sourceResourceFixture } from "./source-resource-fixture.ts";
 const resources = await sourceResourceFixture(), { app, headers } = resources;
 config.allowPrivateNetworkFetch = true; // Only controlled localhost provider fixtures in this test process.
 const modelInputs: Array<{ preview?: unknown; material?: { id: string; body: string }; materials?: Array<{ material: { id: string; body: string } }> }> = [];
+const previewThinking: unknown[] = [];
 let failSynthesis = false;
 let onSynthesis: (() => void) | undefined;
 let heldRequests: { entered: ReturnType<typeof gate<void>>; release: ReturnType<typeof gate<void>>; count: number } | undefined;
@@ -32,6 +33,7 @@ const provider = await stub(async (_hit, request) => {
     return { choices: [{ message: { content: '{"ok":true}' } }], usage: { prompt_tokens: 10, completion_tokens: 10 } };
   }
   if (failSynthesis && input.materials) return new Reply(503, { error: "controlled preview fixture failure" });
+  if (input.materials && input.preview) previewThinking.push(JSON.parse(request.body).thinking?.type);
   if (input.materials) onSynthesis?.();
   const dimensions = { audience: 80, practical: 80, evidence: 80, freshness: 80, demand: null, distinctiveness: 80 };
   const gates = { audience: true, evidence: true, benefit: true };
@@ -107,6 +109,7 @@ test("显式提交当期草案经持久队列综合两份已分析材料，重�
   assert.equal(evidence.statusCode, 200, evidence.body); assert.equal(evidence.headers["cache-control"], "no-store");
   assert.equal(evidence.json().body, "固定角色参考图后再对照两个镜头，尚未验证复杂运动。");
   assert.equal((await app.inject({ url: materialPath.replace(`/versions/${result.version}/`, "/versions/999/"), headers })).statusCode, 409);
+  assert.equal(previewThinking.at(-1), "disabled", "结构化候选草案直接输出JSON，避免思考耗尽输出额度");
   assert.ok(modelInputs.at(-1)!.preview, "综合输入必须明确是收集中的未审核草案");
   assert.deepEqual((await app.inject({ url: endpoint, headers })).json(), result);
   assert.equal((await app.inject({ method: "POST", url: endpoint, headers, payload })).json().queued, false);

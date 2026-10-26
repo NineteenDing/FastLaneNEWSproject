@@ -31,7 +31,7 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
       AND computed_at<=${new Date(at.getTime()-6*3600000)} AND computed_at>=${new Date(at.getTime()-6.5*3600000)} ORDER BY computed_at DESC LIMIT 1`;
     const previousEntries=comparison?.entries??[];
     const groups=new Map<number,Report[]>();for(const report of reports)groups.set(Number(report.storyId),[...(groups.get(Number(report.storyId))??[]),report]);
-    const entries:HotEntry[]=[];
+    const entries:HotEntry[]=[], newsValues=new Map<number,number>();
     for(const [storyId,members]of groups){
       const ordered=[...members].sort((a,b)=> (observations.get(b.eventId)?.heatV2.observed??-1)-(observations.get(a.eventId)?.heatV2.observed??-1)
         ||Number(b.selected)-Number(a.selected)||(b.score??0)-(a.score??0)||b.publishedAt.getTime()-a.publishedAt.getTime()||a.id.localeCompare(b.id));
@@ -45,9 +45,10 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
       const comparableKey=sha256(stableJson({scope:observationKey,event:rep.eventId,representative:rep.id,members:observation!.heatV2.memberVersion,dominant,
         platforms:platforms.map(row=>row.board).sort()}));
       const prior=previousEntries.find(entry=>entry.storyId===storyId&&entry.observationKey===comparableKey);
+      newsValues.set(storyId,rep.score??0);
       const pct=prior&&prior.heat>0?(heat-prior.heat)/prior.heat:null;
       const latest=Math.max(...members.map(row=>row.publishedAt.getTime()));
-      entries.push({rank:0,storyId,storyPublicId:rep.publicId,title:rep.title,heat:Math.round(heat*100)/100,
+      entries.push({rank:0,storyId,storyPublicId:rep.publicId,title:rep.title,heatBasis:channels.reports.participants<=1&&!channels.video.some(channel=>channel.value!==null)&&!channels.trends.some(channel=>channel.value!==null)?"single_source":"observed",heat:Math.round(heat*100)/100,
         trend:pct===null?"unknown":pct>.1?"up":pct<-.1?"down":"flat",trendPct:pct===null?null:Math.round(pct*1000)/10,
         badges:at.getTime()-Math.min(...members.map(row=>row.publishedAt.getTime()))<6*3600000?["new"]:[],
         participantCount:reporters.length+platforms.length,sourceCount:new Set(members.map(row=>row.sourceId)).size,
@@ -57,9 +58,10 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
         participants:[...reporters.slice(0,30).map(row=>({name:row.sourceName,kind:"editorial" as const,tier:row.tier})),
           ...platforms.map(row=>({name:row.board,kind:"signal" as const}))]});
     }
-    entries.sort((a,b)=>b.heat-a.heat||b.latestAt.localeCompare(a.latestAt)||a.storyId-b.storyId);
+    // Fixed five-point bands avoid pretending sparse observations are precise to a point.
+    entries.sort((a,b)=>Math.floor(b.heat/5)-Math.floor(a.heat/5)||(newsValues.get(b.storyId)??0)-(newsValues.get(a.storyId)??0)||b.heat-a.heat||b.latestAt.localeCompare(a.latestAt)||a.storyId-b.storyId);
     return{entries:entries.slice(0,10).map((entry,index)=>({...entry,rank:index+1})),coverage:{retention:"rank_competition",halfLifeHours:policy.editorial?.heat.halfLifeHours??24,
-      minParticipants:1,candidates:entries.length,observationKey,observedScope:"public",heatMeaning:"max of independent reports, observed video metrics and verified platform ranks; not global views"}};
+      minParticipants:1,rankingBandWidth:5,candidates:entries.length,observationKey,observedScope:"public",heatMeaning:"max of independent reports, observed video metrics and verified platform ranks; not global views"}};
   });
 }
 

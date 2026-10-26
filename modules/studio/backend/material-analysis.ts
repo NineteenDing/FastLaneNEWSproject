@@ -141,6 +141,7 @@ function project(data: z.infer<typeof assessment> & { entities?: z.infer<typeof 
 const rootSharedExtras = {
   editorialScope: z.any().optional(), aiCentral: z.any().optional(), filmRelevant: z.any().optional(),
   v2: z.any().optional(), majorEvent: z.any().optional(), publicSummary: z.any().optional(),
+  titleZh: z.any().optional(), memeMetrics: z.any().optional(),
   summaryFactIds: z.any().optional(), primaryIntent: z.any().optional(),
 };
 const rootExtraKeys = Object.keys(rootSharedExtras) as Array<keyof typeof rootSharedExtras>;

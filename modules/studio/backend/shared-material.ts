@@ -19,7 +19,7 @@ export const sharedMaterialSchema = z.object({
   majorEvent: z.object({ kind: z.enum(["major_model_release", "binding_policy", "major_incident", "major_platform_change", "major_industry_change", "none"]),
     affectedGroups: z.array(text).max(12), realizedChange: text, evidenceFactIds: factIds, limitations: z.string().trim().max(500).nullable() }).strict().nullable().optional(),
   publicSummary: z.string().trim().min(1).max(300).optional(), summaryFactIds: factIds.optional(),
-  titleZh: z.string().trim().min(1).max(500).optional(),
+  titleZh: z.string().trim().min(1).max(500).nullish().transform(value => value ?? undefined).optional(),
   primaryIntent: z.enum(["practice", "models", "news", "cases", "other"]).optional(),
   columnMatches: z.array(z.object({ columnId: z.string().max(80), value: z.number().min(0).max(100), reason: text }).strict()).max(50),
   event: z.object({ relation: z.enum(["new", "same", "development", "composite"]), candidateId: z.uuid().nullable(),

@@ -10,6 +10,8 @@ import { reporterHeatValue } from "./heat-v2.ts";
 
 /** One entry of a stored ranking; the public read layer (publication/hot.ts) re-checks it before showing it. */
 export interface HotEntry {
+  /** One report alone is limited observation, not a measured global popularity claim. */
+  heatBasis?: "single_source" | "observed";
   observationKey?: string;
   rank: number;
   storyId: number;

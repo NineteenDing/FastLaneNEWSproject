@@ -244,6 +244,8 @@ export interface ServerModule {
     reportCondition?: (alias: string) => ReturnType<Sql>;
     /** Which saved edition series this site exposes in discovery. */
     reportKinds?: readonly ("daily" | "weekly" | "monthly")[];
+    /** Approved newspaper content keeps its publication-time snapshot across news changes. */
+    reportSnapshot?: "frozen";
     /** Read current permissions rather than serving stale public response/discovery snapshots. */
     revalidate?: boolean;
     /** A rolling window for current website lists; stable details and saved issues stay readable. */
