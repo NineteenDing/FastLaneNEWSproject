@@ -1,4 +1,4 @@
-import { submitFilmMetadata } from "./film-metadata.ts";
+import { submitFilmMetadata, filmMetadataPending } from "./film-metadata.ts";
 import { unlink } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -127,7 +127,7 @@ async function collect(job: Job) {
   }
   // Translation is independent: an enqueue failure must not mark a saved collection as failed.
   await submitFilmMetadata(job.id);
-  await submitFilmTranslation(job.id);
+  if(!await filmMetadataPending(job.id))await submitFilmTranslation(job.id);
 }
 
 export async function saveFilmBoard(id: string, input: unknown, actor: string) {

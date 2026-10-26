@@ -84,6 +84,12 @@ async function mergeMetadata(job: Job, metadata: Metadata) {
   });
 }
 
+export async function filmMetadataPending(boardId:string){
+  const [row]=await sql<{snapshot:FilmBoardSnapshot|null}[]>`SELECT snapshot FROM studio_film_boards WHERE id=${boardId}`;
+  const keys=(row?.snapshot?.items??[]).map(item=>metadataKey(boardId,item));
+  return !!(keys.length&&(await sql`SELECT 1 FROM studio_film_metadata WHERE cache_key=ANY(${keys}::text[]) AND state='queued' AND expires_at>now() LIMIT 1`).length);
+}
+
 /** Only a small text cache is persisted. Public GETs never request detail pages or models. */
 export async function submitFilmMetadata(boardId: string) {
   const board=filmBoardCatalog.find(row=>row.id===boardId);
@@ -121,10 +127,11 @@ export const filmMetadataQueue=defineQueue<Job>({name:"studio.film.metadata",opt
       if(!collectionEnabled())throw new QueueDeferred("榜单详情采集已暂停");
       const saved=await sql`UPDATE studio_film_metadata SET state='ready',payload=${sql.json(metadata as never)},expires_at=now()+interval '7 days',updated_at=now()
         WHERE cache_key=${job.key} AND run_token=${job.token} RETURNING cache_key`;
-      if(saved.length){await mergeMetadata(job,metadata);await submitFilmTranslation(job.boardId);}
+      if(saved.length){await mergeMetadata(job,metadata);if(!await filmMetadataPending(job.boardId))await submitFilmTranslation(job.boardId);}
     }catch(error){
       if(error instanceof QueueDeferred)throw error;
       await sql`UPDATE studio_film_metadata SET state='failed',expires_at=now()+interval '6 hours',updated_at=now() WHERE cache_key=${job.key} AND run_token=${job.token}`;
+      if(!await filmMetadataPending(job.boardId))await submitFilmTranslation(job.boardId);
     }
   }},
 });

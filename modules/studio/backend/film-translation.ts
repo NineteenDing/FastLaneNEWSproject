@@ -23,6 +23,8 @@ async function snapshot(id: string) {
   return (await sql<{ snapshot: FilmBoardSnapshot | null; enabled: boolean }[]>`SELECT snapshot, (definition->>'enabled')::boolean AS enabled FROM studio_film_boards WHERE id = ${id}`)[0];
 }
 export async function submitFilmTranslation(id: string, retry = false) {
+  const {filmMetadataPending}=await import("./film-metadata.ts");
+  if(await filmMetadataPending(id))return{queued:false};
   if (filmBoardCatalog.find(board => board.id === id)?.retired || filmBoardCatalog.find(board => board.id === id)?.region !== "overseas" || !await modelWorkAllowed()) return { queued: false };
   const row = await snapshot(id);
   if (!row?.enabled || !row.snapshot?.items.length) return { queued: false };
