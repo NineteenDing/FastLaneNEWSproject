@@ -19,7 +19,7 @@ const disposition = (decision: string) => decision === "relevant" ? "awaiting_de
 
 export const trendRelevanceQueue = defineQueue<Job>({
   name: "studio.trends.relevance", options: { policy: "short", retryLimit: 0, expireInSeconds: 180 },
-  worker: { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2, groupConcurrency: 1 },
+  worker: { localConcurrency: 1, batchSize: 100, pollingIntervalSeconds: 2, groupConcurrency: 1 },
   async run(jobs) { for (const job of jobs) await analyze(job); },
 });
 
@@ -51,7 +51,7 @@ export async function submitTrendRelevance(input: unknown, actor: string) {
       }
       const runToken = randomUUID();
       const jobId = await enqueueOn(trendRelevanceQueue, { signalId: signal.id, key, runToken },
-        { singletonKey: `${signal.id}:${key}`, group: { id: "platform-trend-relevance" } }, db);
+        { singletonKey: `${signal.id}:${key}` }, db);
       if (!jobId) continue;
       await db`INSERT INTO studio_trend_relevance (signal_id, context_key, input, run_token, job_id)
         VALUES (${signal.id}, ${key}, ${db.json(snapshot)}, ${runToken}, ${jobId}) ON CONFLICT (signal_id, context_key)
