@@ -94,7 +94,7 @@ export async function rescoreCurrentDirections(db: Db, result: TopicRecommendati
     WHERE 'creator:'||p.id=ANY(${materials.map(material=>material.id)}::text[])`;
   const currentMaterials=materials.flatMap(material=>{
     const record=records.find(record=>record.materialId===material.id&&record.sourceKey===historyEvidenceKey(material));
-    const latest=metrics.find(row=>row.id===material.id),current=latest?{...material,metrics:latest.metrics,updatedAt:latest.observedAt.toISOString(),
+    const latest=metrics.find(row=>row.id===material.id),current=latest?.metrics?{...material,metrics:latest.metrics,updatedAt:latest.observedAt.toISOString(),
       observations:[{observedAt:latest.observedAt.toISOString(),metrics:latest.metrics}]}:material;
     return record?.analysis?[{material:current,analysis:{materialId:material.id,state:"completed" as const,...record.analysis,receiptId:null,error:null}}]:[];
   });
