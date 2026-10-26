@@ -30,6 +30,6 @@ test('启动收紧旧榜单时仅删独有封面缓存，新闻共用缓存不�
     const response=await app.inject({url:'/api/site/film-boards'}); assert.equal(response.statusCode,200); assert.ok(!response.body.includes('covers.example'));
     const board=response.json().boards.find((item:{id:string})=>item.id==='aitop100-short');
     assert.equal(board.limit,20); assert.equal(board.version,1); assert.equal(board.items.length,2);
-    assert.deepEqual(Object.keys(board.items[0]).sort(),['id','position','title','url','author','metrics'].sort());
+    assert.deepEqual(Object.keys(board.items[0]).sort(),['id','position','title','url','author','metrics','sourceSummary','productionCountries','countryStatus','summaryKind','summaryStatus'].sort());
   } finally { await app.close(); }
 });

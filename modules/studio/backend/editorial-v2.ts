@@ -9,11 +9,11 @@ export type InternalDimensions = { I: number; M: number; E: number; X: number; P
 
 export const DEFAULT_EDITORIAL_V2: EditorialPolicyV2 = {
   schemaVersion: 2,
-  policyVersion: "editorial-v2.0",
+  policyVersion: "editorial-v2.1-20261026",
   public: {
     weights: { interest: 25, impact: 25, substance: 15, practical: 10, freshness: 5, heat: 20 },
     all: { S: 45, B: 40, I: 35, D: 40, compensatedB: 50 },
-    selected: { S: 60, B: 55, I: 60, D: 50, compensatedB: 70 },
+    selected: { S: 55, B: 60, I: 60, D: 50, compensatedB: 65 },
     general: { S: 70, M: 75, I: 65, D: 55, compensatedB: 75 },
     nonAi: { M: 80, I: 80, D: 55, S: 75 },
     major: { M: 85, I: 60, D: 55 },
@@ -102,7 +102,7 @@ export function scorePublic(input: { dimensions: Dimensions; observed: number | 
   const lowerHeat = input.state === "complete" ? (input.observed ?? 0) : (input.freshObserved ?? 0);
   const upperHeat = input.state === "complete" ? (input.observed ?? 0) : 100;
   return {
-    base: round2(base), B: round2(base / (1 - w.heat)), Hdecision: round2(decision), S: round2(base + w.heat * decision),
+    base, B: base / (1 - w.heat), Hdecision: decision, S: base + w.heat * decision,
     heatCompensated: input.observed === null || decision > input.observed,
     interval: [round2(base + w.heat * lowerHeat), round2(base + w.heat * upperHeat)] as [number, number],
   };
@@ -116,7 +116,7 @@ export function scoreInternal(input: { dimensions: InternalDimensions; observed:
   const lowerHeat = input.state === "complete" ? (input.observed ?? 0) : (input.freshObserved ?? 0);
   const upperHeat = input.state === "complete" ? (input.observed ?? 0) : 100;
   return {
-    base: round2(base), B: round2(base / (1 - w.heat)), Hdecision: round2(decision), S: round2(base + w.heat * decision),
+    base, B: base / (1 - w.heat), Hdecision: decision, S: base + w.heat * decision,
     heatCompensated: input.observed === null || decision > input.observed,
     interval: [round2(base + w.heat * lowerHeat), round2(base + w.heat * upperHeat)] as [number, number],
   };

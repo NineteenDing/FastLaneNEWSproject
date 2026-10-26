@@ -22,7 +22,7 @@ type Entry = { itemId: string; eventKey: string; title: string; summary: string;
   route: string; scope: string; major: boolean; breakout: boolean; heatFresh: number | null; heatState: string; heatCompensated: boolean;
   B: number; S: number; I: number; M: number; P: number; D: number; newsTime: string | null; ageHours: number | null;
   primaryIntent: string | null; quotaExceptionReason: string | null; retake: boolean;
-  channel: "reports" | "video"; channelPlatform: string | null; channelVolume: number };
+  channel: "reports" | "video" | "trends"; channelPlatform: string | null; channelVolume: number };
 type Lead = { itemId: string; eventKey: string; selectionMode: "observed_heat" | "editorial_fallback"; heatAtCutoff: number | null;
   comparisonBand: string[]; fallbackReason: string | null; candidates: Array<{ eventKey: string; heatFresh: number | null; state: string; major: boolean; B: number }> } | null;
 type Input = { day: string; start: string; end: string; policy: FilterPolicy; entries: Entry[]; lead?: Lead; modelRequested?: boolean };
@@ -46,7 +46,7 @@ async function capture(day: string): Promise<Input> {
     const policy = await currentFilterPolicy(db), params = policy.editorial ?? EDITORIAL_V2;
     const records = await scoringRecords(db, db`h.article_id IS NOT NULL AND h.published_at >= ${new Date(end.getTime() - 30 * 86400000)} AND h.published_at < ${end}
       AND h.collected_at < ${end} AND EXISTS (SELECT 1 FROM publications p WHERE p.article_id = h.article_id AND ${listedCondition(end)})`);
-    const events = await sharedEventObservations(db, [...new Set(records.flatMap(row => row.eventId ? [row.eventId] : []))], end, policy);
+    const events = await sharedEventObservations(db, [...new Set(records.flatMap(row => row.eventId ? [row.eventId] : []))], end, policy, "public");
     const published = records.length ? await db<Array<{ article_id: string; source_id: string; name: string; url: string; first_party: boolean; story_id: number | null; sort_at: Date }>>`
       SELECT p.article_id, p.source_id, s.name, p.url, p.first_party, p.story_id, p.sort_at FROM publications p JOIN sources s ON s.id = p.source_id
       WHERE p.article_id = ANY(${records.map(row => row.materialId.slice(5))}::text[]) AND ${listedCondition(end)}` : [];
@@ -72,6 +72,7 @@ async function capture(day: string): Promise<Input> {
       const dominant = channels ? [
         { channel: "reports" as const, platform: null as string | null, value: channels.reports.value ?? -1, volume: channels.reports.effective },
         ...channels.video.map(channel => ({ channel: "video" as const, platform: channel.platform, value: channel.value ?? -1, volume: channel.effective })),
+        ...channels.trends.map(channel=>({channel:"trends" as const,platform:channel.board,value:channel.freshValue??-1,volume:0})),
       ].sort((a, b) => b.value - a.value || (a.channel === "reports" ? -1 : 1) - (b.channel === "reports" ? -1 : 1)
         || (a.platform ?? "").localeCompare(b.platform ?? ""))[0]! : { channel: "reports" as const, platform: null, value: -1, volume: 0 };
       const eventTime = event ? event.event.time : shared.event?.time ?? null;
@@ -191,8 +192,9 @@ async function capture(day: string): Promise<Input> {
 }
 
 function template(input: Input) {
-  const [lead, ...rest] = input.entries, count = input.entries.length;
-  return { date: input.day, lead: { title: lead?.title ?? "今日暂无合格AI影视新闻", leadParagraph: lead?.summary ?? "截至本期08:00，尚无可公开的合格新闻。",
+  const lead = input.lead ? input.entries.find(entry => entry.itemId === input.lead!.itemId) : undefined;
+  const rest = input.entries.filter(entry => entry !== lead), count = input.entries.length;
+  return { date: input.day, lead: { title: lead?.title ?? (count ? "今日AI影视资讯" : "今日暂无合格AI影视新闻"), leadParagraph: lead?.summary ?? (count ? "本期仅有合格回看资料，没有符合时间条件的头条。" : "截至本期08:00，尚无可公开的合格新闻。"),
     itemId: lead?.itemId ?? null, eventKey: lead?.eventKey ?? null, selectionMode: input.lead?.selectionMode ?? null,
     heatAtCutoff: input.lead?.heatAtCutoff ?? null, comparisonBand: input.lead?.comparisonBand ?? [], fallbackReason: input.lead?.fallbackReason ?? null },
     leadItemId: lead?.itemId ?? null, highlights: rest.slice(0, 3).map(entry => entry.itemId),
@@ -210,7 +212,7 @@ async function publishTemplate(day: string, generated?: { value: Composition; to
     if (!edition || (generated ? edition.state !== "queued" || edition.run_token !== generated.token : edition.state !== "pending")) return;
     const input = generated ? { ...edition.input, entries: generated.value.order.map(id => edition.input.entries.find(entry => entry.itemId === id)!) } : edition.input;
     const base = template(input);
-    const content = generated ? { ...base, lead: { ...base.lead, leadParagraph: generated.value.leadParagraph },
+    const content = generated ? { ...base, lead: { ...base.lead, leadParagraph: input.lead ? generated.value.leadParagraph : base.lead.leadParagraph },
       overview: [base.overview, generated.value.overview].filter(Boolean).join("\n"), overviewItemIds: input.entries.map(entry => entry.itemId),
       generator: { ...base.generator, mode: "model" } } : base;
     await saveReport("daily", day, new Date(input.start), new Date(input.end), content,

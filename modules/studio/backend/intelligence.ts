@@ -5,7 +5,7 @@ import { matchesSourceMetadata } from "./metadata-sql.ts";
 import { materialAnalysisReadings, materialAnalysisReadingsSql, materialAnalysisJobsAvailable } from "./material-analysis-state.ts";
 import { modelWorkAllowed } from "./model-operations.ts";
 import { sourceImages } from "./source-images.ts";
-import { materialTrendsSql } from "./trend-provenance.ts";
+import { materialTrendsSql, newsMaterialTrendsSql } from "./trend-provenance.ts";
 import { visibleCreatorPost } from "./creator-identity.ts";
 import { creatorWorkSource } from "./creator-works.ts";
 import { intelligenceMatches } from "./intelligence-matches.ts";
@@ -79,12 +79,14 @@ export function intelligenceEvidence(db: Tx, window: { earliestStart: Date; star
       || CASE WHEN images.version_key IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('sourceImages', jsonb_build_object(
         'versionKey', images.version_key, 'revision', images.revision, 'state', CASE WHEN jsonb_array_length(images.candidates) = 0 THEN 'empty' ELSE images.state END,
         'enabled', false, 'candidateCount', jsonb_array_length(images.candidates), 'images', images.images, 'error', images.error, 'updatedAt', images.updated_at)) END
-      || CASE WHEN trends.trends <> '[]'::jsonb THEN jsonb_build_object('trends', trends.trends) ELSE '{}'::jsonb END AS evidence
+      || CASE WHEN coalesce(trends.trends,news_trends.trends,'[]'::jsonb) <> '[]'::jsonb
+        THEN jsonb_build_object('trends', coalesce(trends.trends,news_trends.trends)) ELSE '{}'::jsonb END AS evidence
     FROM materials m LEFT JOIN articles a ON a.id = CASE WHEN m.id LIKE 'news:%' THEN substring(m.id FROM 6) END
     LEFT JOIN studio_creator_posts p ON p.id = CASE WHEN m.id LIKE 'creator:%' THEN substring(m.id FROM 9)::uuid END
     LEFT JOIN studio_media_transcripts transcript ON transcript.post_id = p.id AND transcript.source_fingerprint = p.content_fingerprint
     LEFT JOIN LATERAL (SELECT i.* FROM studio_news_image_sets i WHERE i.article_id = a.id AND i.revision = a.revision ORDER BY i.updated_at DESC LIMIT 1) images ON true
     LEFT JOIN LATERAL (${materialTrendsSql(db, db`p.id`)}) trends ON p.id IS NOT NULL
+    LEFT JOIN LATERAL (${newsMaterialTrendsSql(db,db`a.id`)}) news_trends ON a.id IS NOT NULL
     WHERE ${selectedOutsideWindow && ids?.length ? db`true` : db`m."collectedAt" >= ${window.earliestStart} AND m."collectedAt" < ${window.endsAt}`}`;
 }
 

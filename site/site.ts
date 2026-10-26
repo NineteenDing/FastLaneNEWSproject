@@ -26,7 +26,7 @@ export const SITE = {
    * 改成“法律”“HR”“黄金”之类，页面上就会变成“法律日报”“法律动态”。
    */
   subject: "AI影视",
-  hotDescription: "过去48小时，AI影视圈讨论最多的十件事",
+  hotDescription: "按已观测传播热度持续更新，热度衰减与新事件共同决定排名",
   /** 首页的完整标题（浏览器标签、搜索结果）。 */
   homeTitle: `${PRODUCT_NAME} — AI影视新闻 · 每日精选与日报`,
   /** 主题目录页（/topics）的标题。 */

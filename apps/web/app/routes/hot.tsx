@@ -43,7 +43,7 @@ const RANK_COLOR = ["text-rank-1", "text-rank-2", "text-rank-3"];
 const rankColor = (rank: number) => RANK_COLOR[rank - 1] ?? "text-rank-rest";
 const pad = (rank: number) => String(rank).padStart(2, "0");
 
-/** "某媒体、某账号 等 4 个来源 · 7 位参与者". */
+/** "某媒体、某账号 等 4 个来源 · 7 个观测主体". */
 function Voices({ e }: { e: HotEntryView }) {
   const names = e.sourceNames.slice(0, 2);
   return (
@@ -55,8 +55,9 @@ function Voices({ e }: { e: HotEntryView }) {
       </span>
       <span className="mx-1.5 text-line-strong">·</span>
       <span className="whitespace-nowrap">
-        <span className="num">{e.participantCount}</span> 位参与者
+        <span className="num">{e.participantCount}</span> 个观测主体
       </span>
+      {e.participantCount === 1 && <span className="ml-2">· 单源观察</span>}
     </span>
   );
 }
@@ -84,18 +85,18 @@ function StoryLink({ e, className }: { e: HotEntryView; className: string }) {
  */
 function HeatPanel({ e }: { e: HotEntryView }) {
   const seen = e.spark.filter((v): v is number => v !== null);
-  const peak = Math.max(...seen);
+  const peak = seen.length ? Math.max(...seen) : 0;
   const peakAt = e.spark.findIndex((v) => v === peak);
   return (
     <div className="order-first flex aspect-[2/1] flex-col rounded-panel bg-accent-softer p-4 ring-1 ring-inset ring-line-soft xl:order-none xl:aspect-[16/10] dark:bg-accent-soft">
       <div className="flex items-baseline justify-between text-[11.5px] text-ink-4">
         <span className="font-semibold text-ink-3">24 小时热度</span>
         <span>
-          峰值 <span className="mono text-ink-2">{Math.round(peak)}</span>
-          {peakAt >= 0 && <span> · {peakAt === e.spark.length - 1 ? "当前" : `${e.spark.length - 1 - peakAt} 小时前`}</span>}
+          {peak > 0 ? <>峰值 <span className="mono text-ink-2">{Math.round(peak)}</span></> : "观察中"}
+          {peakAt >= 0 && <span> · {peakAt === e.spark.length - 1 ? "当前" : `${Math.round((e.spark.length - 1 - peakAt) * 24 / Math.max(1,e.spark.length - 1))} 小时前`}</span>}
         </span>
       </div>
-      <Sparkline values={e.spark} className="mt-3 min-h-0 w-full flex-1" />
+      {seen.length >= 2 ? <Sparkline values={e.spark} className="mt-3 min-h-0 w-full flex-1" /> : <p className="flex min-h-24 flex-1 items-center justify-center text-[13px] text-ink-3">正在积累可比较的真实走势</p>}
       <div className="mt-2 flex justify-between text-[11px] text-ink-4">
         <span>24 小时前</span>
         <span>现在</span>
@@ -106,7 +107,7 @@ function HeatPanel({ e }: { e: HotEntryView }) {
 
 /** No. 1: the event people are talking about most, with its picture, digest, latest turn and day of heat. */
 function Lead({ e }: { e: HotEntryView }) {
-  const panel = !e.cover && e.spark.filter((v) => v !== null).length >= 3;
+  const panel = !e.cover;
   return (
     <article className="card card-hover group relative flex flex-col overflow-hidden p-5 sm:p-6">
       <div className="flex items-center gap-2.5">
@@ -175,7 +176,7 @@ function Runner({ e }: { e: HotEntryView }) {
           <Faces participants={e.participants} total={e.participantCount} size={20} />
           <span className="text-[12px] text-ink-4">
             <span className="whitespace-nowrap"><span className="num">{e.sourceCount}</span> 个来源</span> ·{" "}
-            <span className="whitespace-nowrap"><span className="num">{e.participantCount}</span> 位参与者</span>
+            <span className="whitespace-nowrap"><span className="num">{e.participantCount}</span> 个观测主体</span>
           </span>
         </div>
         <div className="flex items-end gap-3">
@@ -328,7 +329,7 @@ export default function HotPage() {
         </summary>
         <div className="max-w-[760px] space-y-2 pb-2 pl-[21px] pt-2 leading-[1.75] text-ink-3">
           <p>热度来自参与同一事件的独立账号与机构，重复采集只算一次，并按 24 小时半衰期衰减。它衡量讨论活跃程度，不是报道质量评分。</p>
-          <p>榜单统计过去 48 小时。趋势只比较持续覆盖的同一组信源；它反映我们的监测范围，不代表全网人数。缺少可比历史时，不展示趋势线。</p>
+          <p>事件不因超过48小时自动下榜，而按衰减热度与新事件竞争前十。热度取独立报道、已观测视频指标、已关联的平台榜单三通道最高值；排名不换算播放量。两个独立平台同时在榜的同一相关事件属于确认出圈。单源只是有限观察，不代表全网冷热；趋势只用相同规则和可比信源下的真实历史。</p>
           <p>
             信源名单只展示可公开阅读的报道来源；讨论参与者还包括只计入热度的账号与机构。同一机构的多个渠道可能合并计数，因此参与者不一定多于信源数。点击事件可查看各方报道与观点。
           </p>

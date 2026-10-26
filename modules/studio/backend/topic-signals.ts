@@ -1,6 +1,9 @@
+import { verifiedMemeEvidence } from "./shared-material.ts";
 import type { EditorialPolicyV2, EditorialScopeV2, EventPropagationRules, FilterPolicy, SharedTopicSignals, TopicBatchMaterial, TopicMaterialAnalysis } from "../contracts.ts";
 import { defaultEventPropagationRules, eventHeat, eventHeatV2, observeEvent, resolveEventTime, type PropagationRow } from "./event-propagation.ts";
 import { DEFAULT_EDITORIAL_V2, freshness, routePublic } from "./editorial-v2.ts";
+import { heatSnapshot } from "./editorial-v2.ts";
+import { platformAttention } from "./platform-attention.ts";
 
 type Material = { material: TopicBatchMaterial; analysis: TopicMaterialAnalysis | null };
 
@@ -14,16 +17,16 @@ const selectedRoutes = ["direct_selected", "major_event", "verified_breakout", "
 /** Uses frozen evidence only: no current database reads, model calls, or mutation of history. */
 export function freezeSharedTopicSignals(materials: Material[], asOf: string, propagation: EventPropagationRules = defaultEventPropagationRules,
   heatPolicy?: FilterPolicy["heat"], editorial: EditorialPolicyV2 = DEFAULT_EDITORIAL_V2): SharedTopicSignals | undefined {
-  const understood = materials.filter(row => row.analysis?.shared);
+  const understood = materials.filter(row => row.analysis?.shared && Date.parse(row.material.collectedAt)<=Date.parse(asOf));
   if (!understood.length) return undefined;
-  const cutoff = Date.parse(asOf), rules = { ...propagation }, start = cutoff - rules.windowHours * 3600000;
+  const cutoff = Date.parse(asOf), rules = { ...propagation, independentReports: editorial.breakout.reports, observedViews: editorial.breakout.views, independentAuthors: editorial.breakout.authors }, start = cutoff - rules.windowHours * 3600000;
   const evidenceAvailable = ({ material, analysis }: Material) => !!analysis?.shared?.facts.length && analysis.gates?.evidence === true
     && ["ok", "collected", "transcribed"].includes(material.bodyState) && !!material.body.trim();
   const idFor = (row: Material) => row.analysis?.sharedEventId ?? "material:" + row.material.id;
   const events: SharedTopicSignals["events"] = [];
   for (const id of new Set(understood.map(idFor))) {
     const related = understood.filter(row => idFor(row) === id);
-    const window = related.filter(row => evidenceAvailable(row) && row.material.publishedAt !== null
+    const window = related.filter(row => evidenceAvailable(row) && row.material.publishedAt !== null && Date.parse(row.material.collectedAt) <= cutoff
       && Date.parse(row.material.publishedAt) >= start && Date.parse(row.material.publishedAt) <= cutoff);
     const rows: PropagationRow[] = window.map(({ material, analysis }) => {
       const observations = material.observations.filter(observation => Date.parse(observation.observedAt) <= cutoff)
@@ -34,14 +37,26 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
         ? "creator-subject:" + material.source.subject.id : material.source.platform + ":" + material.source.id),
         reportingKind: analysis!.shared!.reportingKind, scope: analysis!.shared!.scope, platform: material.source.platform,
         kind: material.kind, work: material.source.work?.id ?? material.id, views: metrics?.views ?? null, publishedAt: material.publishedAt!,
-        observedAt: observed, hasMemeEvidence: analysis!.shared!.memeEvidence.length > 0 };
+        observedAt: observed, hasMemeEvidence: analysis!.shared!.memeEvidence.length > 0, verifiedMeme: verifiedMemeEvidence(analysis!.shared) };
     });
     const qualified = related.some(row => evidenceAvailable(row) && ["direct", "important_ai"].includes(row.analysis!.shared!.scope));
-    const heatV2 = eventHeatV2(rows, asOf, editorial);
+    const baseHeat = eventHeatV2(rows, asOf, editorial);
+    const trends=platformAttention(related.flatMap(row=>(row.material.trends??[]).flatMap(trend=> {
+      const observation=trend.observations.filter(value=>Date.parse(value.observedAt)<=cutoff).sort((a,b)=>Date.parse(b.observedAt)-Date.parse(a.observedAt))[0];
+      return observation?[{platform:trend.platform,board:trend.platform,rank:observation.rank,observedAt:observation.observedAt,active:trend.active!==false}]:[];
+    })),asOf);
+    const maximum=(a:number|null,b:number|null)=>a===null?b:b===null?a:Math.max(a,b);
+    const heatV2=heatSnapshot({canonicalEventId:id,asOf,observationScope:"internal",state:baseHeat.observed===null&&trends.observed===null?"unknown":"partial",
+      observed:maximum(baseHeat.observed,trends.observed),freshObserved:maximum(baseHeat.freshObserved,trends.freshObserved),
+      channels:{...baseHeat.channels,trends:trends.channels},missingReasons:baseHeat.missingReasons},editorial);
+    const breakout=observeEvent(rows,qualified,asOf,rules,editorial.breakout.freshHours);
+    if(qualified&&trends.breakout)breakout.breakout={triggered:true,candidate:true,reasons:[...breakout.breakout.reasons,"independent_platform_trends"]};
+    const evidenceTimes=related.filter(evidenceAvailable).map(row=>({reportingKind:row.analysis!.shared!.reportingKind,time:row.analysis!.shared!.event?.time}));
+    const resolvedTime=resolveEventTime(evidenceTimes),timeConflict=evidenceTimes.some(row=>!!row.time)&&resolvedTime===null;
     events.push({ id, label: related[0]!.analysis!.shared!.event?.label ?? related[0]!.material.title,
-      materialIds: related.map(row => row.material.id), ...observeEvent(rows, qualified, asOf, rules),
-      ...(heatPolicy ? { heat: eventHeat(rows, asOf, heatPolicy), time: resolveEventTime(related.filter(evidenceAvailable).map(row => ({
-        reportingKind: row.analysis!.shared!.reportingKind, time: row.analysis!.shared!.event?.time }))),
+      materialIds: related.map(row => row.material.id), ...breakout,
+      time:resolvedTime,timeConflict,
+      ...(heatPolicy ? { heat: eventHeat(rows, asOf, heatPolicy),
         allReposts: related.every(row => row.analysis!.shared!.reportingKind === "repost") } : {}),
       heatObserved: heatV2.observed, heatFresh: heatV2.freshObserved, heatState: heatV2.state, heatDecision: heatV2.decisionValue,
       heatCompensated: heatV2.heatCompensated, interval: [heatV2.lower, heatV2.upper], policyVersion: heatV2.policyVersion });
@@ -50,10 +65,10 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
   const candidates: SharedTopicSignals["candidates"] = understood.map(row => {
     const shared = row.analysis!.shared!, scope = scopeOf(shared), available = evidenceAvailable(row);
     const event = events.find(candidate => candidate.id === idFor(row))!, heat = event;
-    const eventTime = event.time ?? null, temporaryEvent = event.id.startsWith("material:");
+    const eventTime = event.time ?? null;
     const published = row.material.publishedAt;
     const age = eventTime ? (cutoff - Date.parse(eventTime.at)) / 3_600_000
-      : shared.reportingKind === "repost" || !temporaryEvent ? null
+      : event.timeConflict || shared.reportingKind === "repost" ? null
       : published ? (cutoff - Date.parse(published)) / 3_600_000 : null;
     const F = freshness(age === null || age < 0 ? null : age, { policy: editorial }).decision;
     const I = shared.v2?.I.value ?? shared.publicDimensions.interest.value ?? null;
@@ -85,7 +100,7 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
 
 export const sharedTopicInstructions = "二期共享选题规则：rankingContext.sharedSignals是按本批次截止/捕获时间冻结的传播和候选依据。" +
   "v2中editorialScope区分直接AI影视、通用AI、非AI影视和无关材料；path为major_event/breakout/general_ai/market_reference时已取得事件级资格，" +
-  "可突破普通方向的实操和总分要求，但仍须E≥50、真实核心事实、明确观看收益和核心事件引用。" +
+  "只有primaryCoreEventId属于major_event或breakout可突破普通方向总分；通用AI精选与market_reference不能借作背景让别的核心事件过线。仍须E≥50、真实核心事实和明确观看收益。" +
   "heatFresh是新鲜实测传播指数，heatState为complete/partial/unknown；unknown只代表观察不足，不是真实零热度，也不是模型判断。" +
   "热度表示已观测传播，不是事实被独立证实，也不保证占每栏前三；不同平台不加总、转载不作多份原始验证。" +
   "新闻和作品不要求操作步骤或两分钟讲完；实操栏目仍须可执行方法。优先综合这些候选，有材料无法成题时保留其归属和理由，不硬凑方向；无关娱乐和事实不足不能借热度放行。";

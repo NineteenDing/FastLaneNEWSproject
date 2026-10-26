@@ -19,6 +19,7 @@ export const sharedMaterialSchema = z.object({
   majorEvent: z.object({ kind: z.enum(["major_model_release", "binding_policy", "major_incident", "major_platform_change", "major_industry_change", "none"]),
     affectedGroups: z.array(text).max(12), realizedChange: text, evidenceFactIds: factIds, limitations: z.string().trim().max(500).nullable() }).strict().nullable().optional(),
   publicSummary: z.string().trim().min(1).max(300).optional(), summaryFactIds: factIds.optional(),
+  titleZh: z.string().trim().min(1).max(500).optional(),
   primaryIntent: z.enum(["practice", "models", "news", "cases", "other"]).optional(),
   columnMatches: z.array(z.object({ columnId: z.string().max(80), value: z.number().min(0).max(100), reason: text }).strict()).max(50),
   event: z.object({ relation: z.enum(["new", "same", "development", "composite"]), candidateId: z.uuid().nullable(),
@@ -27,6 +28,9 @@ export const sharedMaterialSchema = z.object({
   }).strict().nullable(),
   reportingKind: z.enum(["original", "repost", "commentary", "test", "development"]),
   memeEvidence: z.array(z.object({ text, quotes }).strict()).max(6),
+  memeMetrics: z.object({ participants: z.number().int().nonnegative(), platforms: z.number().int().nonnegative(),
+    sources: z.number().int().nonnegative(), cases: z.number().int().nonnegative(), originalParticipants: z.number().int().nonnegative(),
+    derivativeWorks: z.number().int().nonnegative(), evidenceFactIds: factIds }).strict().nullable().optional(),
   dailyReuse: z.object({ kind: z.enum(["background", "policy"]), validFrom: z.iso.date().nullable(), validThrough: z.iso.date().nullable(), quotes }).strict().nullable().optional(),
   /** Compatible models may repeat root-only fields here; the root values remain authoritative. */
   insights: z.any().optional(), dimensions: z.any().optional(),
@@ -45,8 +49,20 @@ export const sharedMaterialSchema = z.object({
       ctx.addIssue({ code: "custom", message: `v2.${key}.factIds 必须指向 shared.facts`, path: ["v2", key, "factIds"] });
   if (data.majorEvent?.evidenceFactIds.some(index => !validFact(index)))
     ctx.addIssue({ code: "custom", message: "majorEvent.evidenceFactIds 必须指向 shared.facts", path: ["majorEvent", "evidenceFactIds"] });
+  if (data.memeMetrics?.evidenceFactIds.some(index => !validFact(index)))
+    ctx.addIssue({ code: "custom", message: "memeMetrics.evidenceFactIds 必须指向 shared.facts", path: ["memeMetrics", "evidenceFactIds"] });
 });
 export type SharedMaterial = z.infer<typeof sharedMaterialSchema>;
+
+export function verifiedMemeEvidence(shared: SharedMaterial | null | undefined) {
+  const value = shared?.memeMetrics;
+  if (!value || !value.evidenceFactIds.length) return false;
+  const text = value.evidenceFactIds.flatMap(id => shared?.facts[id]?.quotes ?? []).join(" ");
+  const stated = (count: number) => count > 0 && new RegExp(`(^|[^0-9])${count}([^0-9]|$)`).test(text);
+  return value.participants >= 20 && value.platforms >= 2 && value.sources >= 2 && value.cases >= 5
+    && [value.participants, value.platforms, value.sources, value.cases].every(stated)
+    || value.originalParticipants >= 1000 && value.derivativeWorks >= 100 && [value.originalParticipants, value.derivativeWorks].every(stated);
+}
 
 const forbiddenSummary = /值得精选|相关性较弱|可作为选题背景|潜在参考价值|建议创作者|模型评分|入选理由|值得关注/;
 /** Public summary only, with a bounded fact-only fallback. It never exposes internal analysis prose. */
@@ -100,4 +116,6 @@ export const sharedMaterialInstructions = "本次为二期共享基础分析：�
   "v2补充：editorialScope为direct_ai_film(明确直接AI影视)/general_ai(AI是主体但非直接AI影视)/non_ai_film(影视音乐漫剧相关但AI非核心)/unrelated/uncertain；aiCentral与filmRelevant为布尔并须有正文依据。direct_ai_film须两者true，general_ai须aiCentral=true，non_ai_film须filmRelevant=true；来源是AI科技媒体不能替代文章相关性。" +
   "v2为{I,M,D,P,E,X}，每项{value:0至100或null,reason,factIds:指向shared.facts的整数下标数组}；I受众兴趣、M影响重要性、D实质信息、P可操作价值、E证据支撑、X表达与新增空间。无实操内容的P=0是明确不适用，不得为了过线倒推分数；核心维度缺失标null。" +
   "publicSummary只写80至180个中文字符（硬上限300）的新闻事实及明确归因的原文观点，不写评分、推荐、相关性、选题、模型判断或“值得关注/潜在参考”；summaryFactIds指向支持摘要的shared.facts下标。" +
-  "majorEvent仅在已核实的重大模型发布、约束性政策、重大事故、重大平台或行业变化时输出{kind,affectedGroups,realizedChange,evidenceFactIds,limitations}；普通融资、名人表态、预告、估值变化和普通小版本更新不是重大，否则null。primaryIntent为practice/models/news/cases/other，按文章主要问题给出。同时保留旧shared.scope字段。" ;
+  "majorEvent仅在已核实的重大模型发布、约束性政策、重大事故、重大平台或行业变化时输出{kind,affectedGroups,realizedChange,evidenceFactIds,limitations}；普通融资、名人表态、预告、估值变化和普通小版本更新不是重大，否则null。primaryIntent为practice/models/news/cases/other，按文章主要问题给出。同时保留旧shared.scope字段。" +
+  "外文新闻在本次同一轮理解中同步输出titleZh作为正式中文标题，保留专有名词，不杜撰原标题没有的事实。中文原标题可省略titleZh。" +
+  "memeMetrics仅在正文引文明确给出量化传播证据时输出{participants,platforms,sources,cases,originalParticipants,derivativeWorks,evidenceFactIds}，未知计0，不能把刷屏/爆火修辞换算人数。无量化证据输出null。";

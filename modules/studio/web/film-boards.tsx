@@ -12,8 +12,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const region = params.region;
   if (region !== "domestic" && region !== "overseas") throw new Response("未找到影视榜", { status: 404 });
   const page = await loadOr404<FilmBoardsPage>(`/api/site/film-boards?region=${region}`, { signal: request.signal });
-  const search = new URL(request.url).searchParams, requested = search.get("board"), genre = search.get("genre"), platform = search.get("platform");
+  page.boards = page.boards.filter(board => board.id !== "lvpaopao");
+  const search = new URL(request.url).searchParams, requested = search.get("board");
+  let genre = search.get("genre"), platform = search.get("platform");
   const selected = page.boards.find(board => board.id === (requested === "hongguo-app" ? "hongguo-web" : requested)) ?? page.boards.find(board => board.items.length > 0) ?? page.boards[0]!;
+  if (genre && !selected.categories?.some(item => item.key === genre)) genre = null;
+  if (platform && !selected.platforms?.some(item => item.key === platform)) platform = null;
   const allItems = selected.items;
   const items = allItems.filter(item => (!genre || item.genreKeys?.includes(genre)) && (!platform || item.sourcePlatform === platform));
   return { ...page, region, genre, platform, selected: { ...selected, items }, allItems };
@@ -37,7 +41,7 @@ export default function FilmBoards() {
   const groupId = board.group?.id ?? board.id;
   const categories = boards.filter(item => (item.group?.id ?? item.id) === groupId);
   const groupName = board.group?.name ?? board.name;
-  return <div className="min-w-0 pb-12">
+  return <div className="mx-auto w-full min-w-0 max-w-[1320px] pb-12">
     <PhoneBar back={{ to: "/more", label: "我的" }} title={title} />
     <header className="pb-5 pt-3 lg:pt-1">
       <h1 data-page-title="" className="text-[24px] font-semibold leading-[1.3] text-ink">{title}</h1>
@@ -51,7 +55,7 @@ export default function FilmBoards() {
         <div className="min-w-0">
           <h2 className="text-[20px] font-semibold text-ink [overflow-wrap:anywhere]">{groupName}</h2>
         </div>
-        {board.sourceUrl && <a className="text-[13px] text-accent underline underline-offset-4" href={board.sourceUrl} target="_blank" rel="noreferrer">查看官方来源</a>}
+        {board.sourceUrl && <a className="text-[13px] text-accent underline underline-offset-4" href={board.sourceUrl} target="_blank" rel="noreferrer">查看榜单来源</a>}
       </div>
       {categories.length > 1 && <nav aria-label={groupName + "分类"} className="mt-4 flex flex-wrap gap-2">{categories.map(item => <Link key={item.id} to={`?board=${item.id}`} aria-current={item.id === board.id ? "page" : undefined}
         className={`rounded-control border px-3 py-2 text-[13px] transition-colors ${item.id === board.id ? "border-accent bg-accent-soft font-semibold text-accent" : "border-line text-ink-3 hover:text-ink"}`}>{item.group?.category ?? item.name}</Link>)}</nav>}
@@ -70,27 +74,44 @@ export default function FilmBoards() {
       {board.items.length > 0 && board.snapshotAt && <p className="mt-1 text-[12.5px] text-ink-3">{board.sourceUpdatedText ? `${board.sourceUpdatedText} · ` : ""}更新于 {fullDateTime(board.snapshotAt)}</p>}
       {!board.items.length ? <div className="py-14 text-center">
         <p className="text-[16px] text-ink">{allItems.length ? "该筛选在本站已取榜单中没有作品。" : "暂未接入榜单数据，请等待后续配置。"}</p>
-      </div> : <ol className="mt-4 divide-y divide-line-soft" aria-label="作品列表">
-        {board.items.map(item => <li key={item.id} className="flex min-w-0 gap-3 py-4 sm:gap-5">
-          <span className="num w-6 shrink-0 pt-1 text-[14px] text-ink-4" aria-label={`来源序号 ${item.position}`}>{item.position}</span>
-          <div aria-hidden="true" className="flex h-28 w-20 shrink-0 flex-col justify-between overflow-hidden rounded-sm border border-line bg-bg-sunk p-2 text-ink-2 shadow-sm sm:h-36 sm:w-24 sm:p-3" style={{fontFamily:'"Microsoft YaHei", "PingFang SC", system-ui, sans-serif'}}>
-            <span className="num text-[11px] text-ink-3">#{item.position}</span><span className="line-clamp-4 text-[12px] font-semibold leading-[1.6] [overflow-wrap:anywhere] sm:text-[14px]">{item.title}</span><span className="mt-2 h-px w-5 bg-line" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-[16px] font-semibold leading-[1.6] text-ink [overflow-wrap:anywhere]"><a href={item.url} target="_blank" rel="noreferrer" className="hover:text-accent">{region === "overseas" ? item.titleZh ?? "中文翻译待生成" : item.title}</a></h3>
-            {region === "overseas" && <p className="mt-1 text-[13px] leading-[1.7] text-ink-3 [overflow-wrap:anywhere]">{item.title}</p>}
-            {region === "overseas" && item.summaryZh && <p className="mt-2 max-w-[75ch] text-[13px] leading-[1.8] text-ink-2 [overflow-wrap:anywhere]">{item.summaryZh}</p>}
-            {region === "domestic" && item.sourceSummary && <div className="mt-2 max-w-[75ch] text-[13px] leading-[1.8] text-ink-2 [overflow-wrap:anywhere]">
-              <p>{item.sourceSummary.length > 180 ? `${item.sourceSummary.slice(0, 180)}…` : item.sourceSummary}</p>
-              {item.sourceSummary.length > 180 && <details className="mt-1"><summary className="cursor-pointer text-accent">展开来源简介</summary><p className="mt-1">{item.sourceSummary.slice(0, 4000)}</p></details>}
-            </div>}
-            {region === "overseas" && !item.summaryZh && item.sourceSummary && <p className="mt-2 max-w-[75ch] text-[13px] leading-[1.8] text-ink-2 [overflow-wrap:anywhere]">{item.sourceSummary}</p>}
-            {item.author && <p className="mt-1 text-[12.5px] text-ink-3 [overflow-wrap:anywhere]">{item.author}</p>}
-            <a className="mt-2 inline-block text-[13px] text-accent underline underline-offset-4" href={item.url} target="_blank" rel="noreferrer">直达原站</a>
-            <p className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12.5px] text-ink-3">{item.metrics.length ? item.metrics.map(metric => <span key={metric.name}>{metric.name}：<span className="num">{metric.text}</span></span>) : "来源未提供热度数字"}</p>
-          </div>
-        </li>)}
-      </ol>}
+      </div> : <>
+        <div aria-hidden="true" className="mt-6 hidden grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)_minmax(9rem,.65fr)] gap-8 rounded-control bg-bg-sunk px-6 py-4 text-[14px] font-semibold text-ink-2 xl:grid">
+          <span>作品</span><span>简介</span><span className="text-right">来源热度</span>
+        </div>
+        <ol className="mt-2 divide-y divide-line-soft" aria-label="作品列表">
+          {board.items.map(item => {
+            const summary = region === "overseas" ? item.summaryZh ?? item.sourceSummary : item.sourceSummary;
+            const country = item.productionCountries?.length ? item.productionCountries.join(" / ") : item.countryStatus === "conflict" ? "待核对" : "未注明";
+            return <li key={item.id} className="grid min-w-0 gap-5 py-6 xl:min-h-40 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)_minmax(9rem,.65fr)] xl:items-center xl:gap-8 xl:px-6">
+              <div className="flex min-w-0 items-start gap-4">
+                <span aria-label={`来源序号 ${item.position}`} className={`num flex h-12 w-11 shrink-0 items-center justify-center rounded-control text-[24px] font-bold ${item.position === 1 ? "bg-accent text-accent-contrast" : item.position <= 3 ? "border border-accent bg-accent-soft text-accent" : "text-ink-4"}`}>{item.position}</span>
+                <div className="min-w-0">
+                  <h3 className="text-[18px] font-semibold leading-relaxed text-ink [overflow-wrap:anywhere]">
+                    <a href={item.url} target="_blank" rel="noreferrer" className="hover:text-accent">{region === "overseas" ? item.titleZh ?? item.title : item.title}</a>
+                  </h3>
+                  {region === "overseas" && item.titleZh && <p className="mt-1 text-[13px] leading-relaxed text-ink-3 [overflow-wrap:anywhere]">{item.title}</p>}
+                  {item.author && <p className="mt-2 text-[13px] text-ink-3 [overflow-wrap:anywhere]">{item.author}</p>}
+                  {region === "overseas" && <p className="mt-2 text-[13px] text-ink-3">国别：{country}</p>}
+                  <a href={item.url} target="_blank" rel="noreferrer" aria-label={`查看《${item.titleZh ?? item.title}》原站`} className="mt-2 inline-flex min-h-11 items-center text-[13px] text-accent underline underline-offset-4">直达原站</a>
+                </div>
+              </div>
+              <div className="min-w-0 text-[15px] leading-[1.85] text-ink-2 [overflow-wrap:anywhere]">
+                {item.summaryKind === "representative_episode" && <p className="mb-1 text-[12px] font-semibold text-ink-3">代表集简介 · 非整剧梗概</p>}
+                {summary ? <>
+                  <p>{summary.length > 500 ? `${summary.slice(0, 350)}…` : summary}</p>
+                  {summary.length > 500 && <details className="mt-2"><summary className="cursor-pointer text-[13px] text-accent">展开完整简介</summary><p className="mt-2">{summary.slice(350, 4000)}</p></details>}
+                </> : <p className="text-ink-3">{item.summaryStatus === "pending" ? "简介正在采集" : "来源未提供作品简介"}</p>}
+              </div>
+              <div className="min-w-0 text-right xl:self-center">
+                {item.metrics.length ? item.metrics.map(metric => <div key={metric.name} className="py-1">
+                  <p className="text-[12px] text-ink-3">{metric.name}</p>
+                  <p title={metric.text} className="num mt-1 text-[24px] font-bold leading-tight text-accent [overflow-wrap:anywhere]">{metric.text}</p>
+                </div>) : <p className="text-[13px] text-ink-3">来源未提供热度数字</p>}
+              </div>
+            </li>;
+          })}
+        </ol>
+      </>}
     </section>
   </div>;
 }

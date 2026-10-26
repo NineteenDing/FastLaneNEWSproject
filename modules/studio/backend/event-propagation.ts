@@ -5,7 +5,7 @@ export const defaultEventPropagationRules: EventPropagationRules = {
   windowHours: 48, independentReports: 10, observedViews: 1000000, independentAuthors: 3, allowMeme: true,
 };
 export type PropagationRow = { materialId: string; participant: string; reportingKind: string; scope: string;
-  platform: string; kind: string; work: string; views: number | null; hasMemeEvidence: boolean; publishedAt?: string; observedAt?: string | null };
+  platform: string; kind: string; work: string; views: number | null; hasMemeEvidence: boolean; verifiedMeme?: boolean; publishedAt?: string; observedAt?: string | null };
 
 function platformWorks(rows: PropagationRow[]) {
   return [...new Set(rows.filter(row => row.kind === "video").map(row => row.platform))].sort().map(platform => {
@@ -23,7 +23,11 @@ function platformWorks(rows: PropagationRow[]) {
 export function resolveEventTime(reports: Array<{ reportingKind: string; time?: EventTime | null }>): EventTime | null {
   const known = reports.filter(report => report.time), original = known.filter(report => ["original", "test", "development"].includes(report.reportingKind));
   const candidates = original.length ? original : known;
-  return new Set(candidates.map(report => Date.parse(report.time!.at))).size === 1 ? candidates[0]!.time! : null;
+  if (!candidates.length) return null;
+  const intervals = candidates.map(report => { const start = Date.parse(report.time!.at); return { report, start,
+    end: start + (report.time!.precision === "day" ? 86400000 - 1 : 0) }; });
+  if (intervals.some(value => !Number.isFinite(value.start)) || Math.max(...intervals.map(value => value.start)) > Math.min(...intervals.map(value => value.end))) return null;
+  return (candidates.find(report => report.time!.precision === "instant") ?? candidates[0])!.time!;
 }
 
 /** Adapted from AIHOT independent-participant half-life and TopicEye decay. Never sum platform counters. */
@@ -48,14 +52,14 @@ export function eventHeat(rows: PropagationRow[], asOf: string, policy: FilterPo
  * Trends are not linked to shared events yet, so the channel stays not_supported rather than a fake zero.
  */
 export function eventHeatV2(rows: PropagationRow[], asOf: string, policy: EditorialPolicyV2): HeatSnapshotV2 {
-  const config = policy.heat, at = Date.parse(asOf), freshMs = 6 * 3_600_000;
+  const config = policy.heat, at = Date.parse(asOf), freshMs = policy.breakout.freshHours * 3_600_000;
   const decay = (time: string | undefined | null) => {
     const parsed = time ? Date.parse(time) : NaN;
     return Number.isFinite(parsed) && parsed <= at ? Math.pow(2, -(at - parsed) / (config.halfLifeHours * 3_600_000)) : 0;
   };
   const isFresh = (time: string | undefined | null) => {
     const parsed = time ? Date.parse(time) : NaN;
-    return Number.isFinite(parsed) && at - parsed <= freshMs;
+    return Number.isFinite(parsed) && at - parsed >= 0 && at - parsed <= freshMs;
   };
   const reports = new Map<string, { publishedAt?: string; observedAt?: string | null }>();
   for (const row of rows) {
@@ -102,9 +106,9 @@ export function eventHeatV2(rows: PropagationRow[], asOf: string, policy: Editor
     ...(observed === null ? ["no_valid_observation"] : []),
     ...(stale ? ["observation_stale"] : []),
     ...(observed !== null && fresh === null ? ["no_fresh_channel"] : []),
-    "trend_channel_not_linked",
+    "unmeasured_video_and_platform_coverage",
   ];
-  const state: ObservationState = observed === null ? "unknown" : stale || fresh === null ? "partial" : "complete";
+  const state: ObservationState = observed === null ? "unknown" : "partial";
   return heatSnapshot({
     canonicalEventId: "", asOf, observationScope: "public", state, observed, freshObserved: fresh, missingReasons,
     channels: { reports: { value: reportsValue, participants: reports.size, effective: reporterEffective,
@@ -113,15 +117,17 @@ export function eventHeatV2(rows: PropagationRow[], asOf: string, policy: Editor
 }
 
 /** One observed event, one platform at a time. Callers supply the actual window's evidence. */
-export function observeEvent(rows: PropagationRow[], qualified: boolean, asOf: string, rules = defaultEventPropagationRules): EventObservation {
+export function observeEvent(rows: PropagationRow[], qualified: boolean, asOf: string, rules = defaultEventPropagationRules, freshHours = 6): EventObservation {
   const reports = rows.filter(row => row.reportingKind !== "commentary");
   const independentReporters = new Set(reports.map(row => row.participant)).size;
   const reasons = independentReporters >= rules.independentReports ? ["independent_reports"] : [];
-  if (rules.allowMeme && rows.some(row => row.hasMemeEvidence && ["direct", "important_ai"].includes(row.scope))) reasons.push("grounded_meme");
+  if (rules.allowMeme && rows.some(row => row.verifiedMeme === true && ["direct", "important_ai"].includes(row.scope))) reasons.push("grounded_meme");
   const platforms = platformWorks(rows).map(({ platform, publications, works, known }) => {
+    const fresh = known.filter(row => { const age = Date.parse(asOf) - Date.parse(row.observedAt ?? ""); return age >= 0 && age <= freshHours * 3600000; });
+    const freshViews = fresh.reduce((sum, row) => sum + row.views!, 0), freshAuthors = new Set(fresh.map(row => row.participant)).size;
     const observedViews = known.length ? known.reduce((sum, row) => sum + row.views!, 0) : null;
     const independentAuthors = new Set(known.map(row => row.participant)).size;
-    if (observedViews !== null && observedViews >= rules.observedViews && independentAuthors >= rules.independentAuthors) reasons.push("observed_video_views:" + platform);
+    if (freshViews >= rules.observedViews && freshAuthors >= rules.independentAuthors) reasons.push("observed_video_views:" + platform);
     return { platform, observedViews, independentAuthors, workCount: works.size, measuredWorkCount: known.length, publicationCount: publications.length };
   });
   return { propagation: { windowHours: rules.windowHours, startsAt: new Date(Date.parse(asOf) - rules.windowHours * 3600000).toISOString(), asOf,

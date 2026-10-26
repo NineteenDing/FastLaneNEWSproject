@@ -1,3 +1,4 @@
+import { sha256, stableJson } from "@aihot/backend/lib/ids";
 import { z } from "zod";
 import { load } from "cheerio";
 import { setTimeout as delay } from "node:timers/promises";
@@ -41,17 +42,19 @@ function routerData(source: string): Record<string, unknown> | null {
   throw new Error("官网初始数据不完整");
 }
 
-export async function readFilmBoard(id: string): Promise<FilmBoardSnapshot> {
+export async function readFilmBoard(id: string, previous?: FilmBoardSnapshot | null): Promise<FilmBoardSnapshot> {
   const board = filmBoardCatalog.find(board => board.id === id);
   const limit = board?.limit ?? 20;
-  if (!board?.supported || !board.sourceUrl) throw new Error("榜单尚未接入");
+  if (!board?.supported || board.retired || !board.sourceUrl) throw new Error("榜单尚未接入");
   const signal = AbortSignal.any([shutdownSignal.signal, AbortSignal.timeout(60000)]);
+  let etag: string|null = null, lastModified: string|null = null;
   async function get(url: string) {
     for (let attempt = 0; ; attempt++) {
       try {
         const response = await guardedFetch(url, { timeoutMs: 12000, maxBytes: 4 * 1024 ** 2, signal, redirect: "error",
-          headers: { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36" } });
-        if (response.status === 200) return response.text();
+          headers: { ...(id === "verticalcharts-52" && previous?.etag ? {"if-none-match":previous.etag}:{}), "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36" } });
+        if (response.status === 304 && previous) return "__NOT_MODIFIED__";
+        if (response.status === 200) { etag=response.headers.get("etag");lastModified=response.headers.get("last-modified");return response.text(); }
         if (![429, 502, 503, 504].includes(response.status) || attempt >= 2) throw new Error("来源请求未成功");
       } catch (error) { if (signal.aborted || attempt >= 2 || error instanceof Error && error.message === "来源请求未成功") throw error; }
       await delay(250 * (attempt + 1), undefined, { signal });
@@ -147,7 +150,8 @@ export async function readFilmBoard(id: string): Promise<FilmBoardSnapshot> {
       if (rows.length < 20) break;
     }
   } else if (id === "verticalcharts-52") {
-    const $ = load(await get(board.sourceUrl));
+    const html=await get(board.sourceUrl);if(html === "__NOT_MODIFIED__" && previous)return previous;
+    const $ = load(html);
     const container = $(".vchart-wrapper[data-vc-type='rank'][data-vc-limit='52']").first();
     if (!container.length) throw new Error("未找到Vertical主榜容器");
     const rows = container.find("a.vchart-row").toArray();
@@ -155,7 +159,7 @@ export async function readFilmBoard(id: string): Promise<FilmBoardSnapshot> {
       const $row = $(element), rankText = $row.find(".vchart-rank").text().trim().replace(/[^\d]/g, ""), rank = Number.parseInt(rankText, 10);
       const href = $row.attr("href"), title = $row.find(".vchart-title").text().trim();
       const scoreText = $row.find(".vchart-score").text().trim(), score = Number.parseFloat(scoreText);
-      if (!Number.isInteger(rank) || rank < 1 || !title || !href) throw new Error("Vertical主榜行字段不完整");
+      if (!Number.isInteger(rank) || rank < 1 || !title || !href || !Number.isFinite(score) || score < 0 || score > 100) throw new Error("Vertical主榜行字段不完整");
       const url = link(href, board.sourceUrl!, true);
       return { rank, title, url, score: Number.isFinite(score) && score >= 0 && score <= 100 ? score : null,
         genreKeys: ($row.attr("data-g") ?? "").split(/\s+/).filter(Boolean),
@@ -165,11 +169,12 @@ export async function readFilmBoard(id: string): Promise<FilmBoardSnapshot> {
     for (const row of allRows) byRankUrl.set(`${row.rank}|${row.url}`, row);
     const unique = [...byRankUrl.values()].sort((a, b) => a.rank - b.rank);
     if (new Set(unique.map(row => row.rank)).size !== unique.length) throw new Error("Vertical主榜排名重复且链接不同");
+    if (new Set(unique.map(row=>row.url)).size!==unique.length || unique.length!==52) throw new Error("Vertical主榜作品身份或52条完整性不符");
     const top = unique.filter(row => row.rank <= limit);
     for (let rank = 1; rank <= limit; rank++) if (!top.some(row => row.rank === rank)) throw new Error("Vertical主榜前40名不完整");
     const countBy = (key: "genreKeys" | "platformKey") => {
       const counts = new Map<string, number>();
-      for (const row of allRows) for (const value of key === "genreKeys" ? row.genreKeys : [row.platformKey].filter((value): value is string => !!value))
+      for (const row of unique) for (const value of key === "genreKeys" ? row.genreKeys : [row.platformKey].filter((value): value is string => !!value))
         counts.set(value, (counts.get(value) ?? 0) + 1);
       return counts;
     };
@@ -193,8 +198,15 @@ export async function readFilmBoard(id: string): Promise<FilmBoardSnapshot> {
       countryStatus: "not_provided" as const, summaryStatus: "pending" as const,
       metrics: row.score === null ? [] : [{ name: "VertiScore（来源综合评分）", value: row.score, text: String(row.score) }],
     }));
+    const dateMatch=updated ? /^([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?$/.exec(updated[1]!) : null;
+    let sourceIssueDate:string|null=null;
+    if(dateMatch){const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"],month=months.indexOf(dateMatch[1]!.slice(0,3).toLowerCase());
+      if(month>=0){const now=new Date();let year=Number(dateMatch[3]??now.getUTCFullYear()),date=new Date(Date.UTC(year,month,Number(dateMatch[2])));
+        if(!dateMatch[3]&&date.getTime()>now.getTime()+86400000)date=new Date(Date.UTC(--year,month,Number(dateMatch[2])));
+        if(dateMatch[3]||now.getTime()-date.getTime()<45*86400000)sourceIssueDate=date.toISOString().slice(0,10);}}
+    const sourceRevision=sha256(stableJson({items,sourceIssueDate,categories,platforms}));
     return { items, fetchedAt: new Date().toISOString(), sourceUpdatedText, sourceUrl: board.sourceUrl, requestedLimit: limit,
-      schemaVersion: 2, sourceIssueDate: null, sourceTotal: allRows.length, categories, platforms };
+      schemaVersion: 2, sourceIssueDate, sourceRevision, etag, lastModified, sourceTotal: unique.length, categories, platforms };
   } else throw new Error("来源适配尚未完成");
   if (new Set(items.map(item => item.id)).size !== items.length) throw new Error("榜单包含重复条目，未保存不确定顺序");
   return { items: items.slice(0, limit), fetchedAt: new Date().toISOString(), sourceUpdatedText, sourceUrl: board.sourceUrl, requestedLimit: limit };

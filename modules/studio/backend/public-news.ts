@@ -1,3 +1,4 @@
+import { savedNewsTitle } from "./news-titles.ts";
 import { sql, type Db } from "@aihot/backend/db";
 import type { PublicationJudgement } from "@aihot/backend/modules";
 import { publishArticleTx } from "@aihot/backend/publication/publish";
@@ -64,12 +65,20 @@ export async function reconcilePublicNews(now = new Date()) {
     const [record] = await scoringRecords(db, db`h.article_id = ${id}`);
     if (!record?.sourceKey) return;
     const policy = await currentFilterPolicy(db), context = await currentColumnContext(db);
-    const events = await sharedEventObservations(db, record.eventId ? [record.eventId] : [], now, policy);
+    const events = await sharedEventObservations(db, record.eventId ? [record.eventId] : [], now, policy, "public");
     const score = scoreMaterialV2(record, record.eventId ? events.get(record.eventId) : undefined, now.toISOString(), policy);
     const [source] = await db<{ participation_mode: string; site_fulltext: boolean; url: string; media: Array<{ url?: string; poster?: string }>;
       body_html: string | null; x_post: { avatarUrl?: string; media?: Array<{ url?: string; poster?: string }> } | null }[]>`
       SELECT s.participation_mode, s.site_fulltext, a.url, a.media, a.body_html, a.x_post FROM sources s JOIN articles a ON a.source_id = s.id WHERE a.id = ${id}`;
-    const allowed = score.eligiblePublic === true && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
+    const [previous] = await db<{source_key:string;decision:PublicationJudgement;selected_ready_at:Date|null}[]>`
+      SELECT permission.source_key,permission.decision,p.selected_ready_at FROM studio_public_news permission
+      LEFT JOIN publications p ON p.article_id=permission.article_id WHERE permission.article_id=${id}`;
+    // List expiry is not a takedown. Recheck current facts/scope with publication-age freshness;
+    // a stale false breakout cannot preserve an old approval through this path.
+    const archived = !!record.publishedAt && now.getTime()-record.publishedAt.getTime()>120*3600000
+      && previous?.source_key===record.sourceKey && (previous.decision.allowed || !!previous.selected_ready_at)
+      && scoreMaterialV2(record,record.eventId ? events.get(record.eventId) : undefined,record.publishedAt.toISOString(),policy).eligiblePublic===true;
+    const allowed = (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
     const images = [...(source?.media ?? []), ...(source?.x_post?.media ?? []), { url: source?.x_post?.avatarUrl }]
       .flatMap(media => [media.url, media.poster]).filter(value => typeof value === "string" && value.trim());
     const fulltextImages: string[] = [];
@@ -88,15 +97,16 @@ export async function reconcilePublicNews(now = new Date()) {
     const reasonLabels: Record<string, string> = { direct_all: "符合AI影视公开范围", direct_selected: "符合AI影视公开与精选资格",
       major_event: "已核实重大事件", verified_breakout: "已确认相关出圈", general_ai_selected: "通用AI达到精选资格",
       market_reference: "非AI影视严格例外", excluded: "未通过公开资格", pending: "待核验", private: "内部材料" };
-    const decision: PublicNewsDecision = { allowed, title: record.title, summary: publicSummary.text,
+    const title = record.analysis?.shared?.titleZh ?? await savedNewsTitle(db, record.title) ?? record.title;
+    const decision: PublicNewsDecision = { allowed, title, summary: publicSummary.text,
       reason: [reasonLabels[score.route ?? "pending"] ?? "待核验", ...(score.summaryState === "ok" ? [] : ["摘要待完成"]),
         ...(publicSummary.fallback ? ["摘要使用原文事实回退"] : [])].join("；"),
       category: policy.columnMapping[record.analysis?.columnId ?? ""] ?? null,
       score: score.public.total, selected: allowed && score.eligibleSelected === true, images: normalize(images), fulltextImages: normalize(fulltextImages),
-      event: allowed && record.eventId && rootId ? { id: record.eventId, rootId, title: record.title,
+      event: allowed && record.eventId && rootId ? { id: record.eventId, rootId, title,
         occurredAt: record.analysis?.shared?.event?.time?.at ?? null } : null };
     await db`INSERT INTO studio_public_news (article_id, source_key, decision, policy_version, semantics_key, updated_at)
-      VALUES (${id}, ${record.sourceKey}, ${db.json(decision as never)}, ${2}, ${record.analysis?.columnSemanticsKey ?? context.key}, ${now})
+      VALUES (${id}, ${record.sourceKey}, ${db.json(decision as never)}, ${policy.version}, ${record.analysis?.columnSemanticsKey ?? context.key}, ${now})
       ON CONFLICT (article_id) DO UPDATE SET source_key = EXCLUDED.source_key, decision = EXCLUDED.decision,
         policy_version = EXCLUDED.policy_version, semantics_key = EXCLUDED.semantics_key, updated_at = EXCLUDED.updated_at`;
     const result = await publishArticleTx(db, id, { now });

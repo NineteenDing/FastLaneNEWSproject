@@ -1,3 +1,8 @@
+import { PUBLIC_HOT_VERSION, calculatePublicHot, publicHeatSeries } from "./backend/public-hot.ts";
+import { refreshTrendEventLinks } from "./backend/trend-links.ts";
+import { trendNewsQueue, scheduleTrendNews } from "./backend/trend-news.ts";
+import { newsTitleQueue, scheduleNewsTitles } from "./backend/news-titles.ts";
+import { filmMetadataQueue, scheduleFilmMetadata } from "./backend/film-metadata.ts";
 import { recordVisit, visitorStats, allowVisit } from "./backend/visitors.ts";
 import type { ServerModule } from "@aihot/backend/modules";
 import { fileURLToPath } from "node:url";
@@ -107,6 +112,7 @@ export const createStudioServer = (resources: {
   admin: { passwordUsername: () => config.adminUsername ?? "admin" },
   editorialPipeline: "disabled",
   publication: { condition: publicNewsCondition, reportCondition: publicReportCondition, reportKinds: ["daily"], revalidate: true, browseWindowHours: 120,
+    hot: { ruleVersion: PUBLIC_HOT_VERSION, calculate: calculatePublicHot, series: publicHeatSeries },
     judgement: publicNewsJudgement, imageAllowed: async url => await publicNewsImageAllowed(url) || await filmBoardImageAllowed(url) },
   on: { materialStored: async ({ id }, db) => { await indexHistoryMaterial(db, "news:" + id); await requestMaterialAnalysis(db, "news:" + id); await requestSourceImages(db, id); } },
   sourceKinds: { web_list: { validateCollection: assertNewsSourceReady }, external: {
@@ -123,8 +129,8 @@ export const createStudioServer = (resources: {
       return platform ? (await enqueueTrend(platform, "system:source-fetch"))! : enqueueNewsBridge(source);
     },
   } },
-  queues: [filmBoardQueue, filmTranslationQueue, dailyEditionQueue, studioBackupQueue, bridgeQueue, creatorQueue, contentImportQueue, newsImportQueue, trendQueue, trendRelevanceQueue, mediaProcessingQueue, sourceImagesQueue, newsMetadataQueue, topicFreezeQueue, topicAnalysisQueue, topicGenerationQueue, topicPreviewQueue, topicReviewQueue, writingGenerationQueue, writingRevisionQueue, referenceVisionQueue, styleLearningQueue, creatorExpressionQueue, historyRebuildQueue],
-  models: { studioMaterialAnalysis: { label: "创作材料归类与初筛", env: "STUDIO_MATERIAL_ANALYSIS_MODEL", purposes: ["studio_film_translation", "studio_material_analysis", "studio_trend_relevance", "studio_style_creator"] },
+  queues: [trendNewsQueue, filmMetadataQueue, newsTitleQueue, filmBoardQueue, filmTranslationQueue, dailyEditionQueue, studioBackupQueue, bridgeQueue, creatorQueue, contentImportQueue, newsImportQueue, trendQueue, trendRelevanceQueue, mediaProcessingQueue, sourceImagesQueue, newsMetadataQueue, topicFreezeQueue, topicAnalysisQueue, topicGenerationQueue, topicPreviewQueue, topicReviewQueue, writingGenerationQueue, writingRevisionQueue, referenceVisionQueue, styleLearningQueue, creatorExpressionQueue, historyRebuildQueue],
+  models: { studioMaterialAnalysis: { label: "创作材料归类与初筛", env: "STUDIO_MATERIAL_ANALYSIS_MODEL", purposes: ["studio_news_title_translation", "studio_film_translation", "studio_material_analysis", "studio_trend_relevance", "studio_style_creator"] },
     studioTopicGeneration: { label: "创作选题综合初版", env: "STUDIO_TOPIC_GENERATION_MODEL", purposes: ["studio_topic_generation", "studio_daily_edition"] },
     studioTopicReview: { label: "创作选题独立审核与裁决", env: "STUDIO_TOPIC_REVIEW_MODEL", purposes: ["studio_topic_review"] },
     studioWriting: { label: "独立中文口播与制作方案", env: "STUDIO_WRITING_MODEL", purposes: ["studio_writing_draft", "studio_writing_polish", "studio_writing_check", "studio_writing_repair", "studio_writing_check_repaired",
@@ -137,6 +143,10 @@ export const createStudioServer = (resources: {
   retention: async now => ({ studioImageAssetsRemoved: (await createImageAssets().prune(new Date(now.getTime() - 30 * 86400_000))).removed,
     studioTopicPreviewsRemoved: await pruneTopicPreviews(now) }),
   schedules: [
+    { name: "studio.film.metadata.schedule", cron: "*/2 * * * *", when: collectionRuntimeAllowed, run: scheduleFilmMetadata },
+    { name: "studio.news.titles.schedule", cron: "*/2 * * * *", run: scheduleNewsTitles },
+    { name: "studio.trends.news.schedule", cron: "* * * * *", when: collectionRuntimeAllowed, run: scheduleTrendNews },
+    { name: "studio.trends.links.schedule", cron: "* * * * *", run: refreshTrendEventLinks },
     { name: "studio.news.publication.schedule", cron: "* * * * *", missed: "once", run: reconcilePublicNews },
     { name: "studio.news.daily.schedule", cron: "* * * * *", missed: "once", run: scheduleDailyEditions },
     { name: "studio.film.translation.schedule", cron: "*/5 * * * *", run: scheduleFilmTranslations },

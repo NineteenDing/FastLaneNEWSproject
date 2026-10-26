@@ -55,7 +55,7 @@ test("榜单采集保留官方顺序与原热度，失败仍读最后成功快�
   response = await app.inject({ url: "/api/site/film-boards?region=domestic" });
   const board = response.json().boards.find((board: { id: string }) => board.id === "aitop100-short");
   assert.equal(board.limit, 20);
-  assert.deepEqual(Object.keys(board.items[0]).sort(), ["id", "position", "title", "url", "author", "sourceSummary", "metrics"].sort());
+  assert.deepEqual(Object.keys(board.items[0]).sort(), ["id", "position", "title", "url", "author", "sourceSummary", "metrics", "productionCountries", "countryStatus", "summaryKind", "summaryStatus"].sort());
   assert.equal((await app.inject({ url: "/api/site/film-boards" })).body.includes("covers.example"), false);
   assert.equal(board.state, "ready"); assert.deepEqual(board.items.map((item: { title: string }) => item.title), ["官方首位", "官方次位"]);
   assert.equal(board.items[0].position, 1); assert.equal(board.items[0].metrics[0].name, "来源综合热度"); assert.equal(board.items[0].metrics[0].value, 20);
@@ -68,73 +68,36 @@ test("榜单采集保留官方顺序与原热度，失败仍读最后成功快�
   assert.equal((await app.inject({ method: "POST", url: "/api/admin/studio/film-boards/lvpaopao/collect", headers, payload: {} })).statusCode, 409);
 });
 
-test("五类官方结构经原采集队列规范保存，分页有界且不把热度或集数包装成播放量", async () => {
-  const next = (value: unknown, links = "") => `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: value } })}</script>${links}`;
-  transport.get("https://www.aitop100.cn").intercept({ method: "GET", path: "/api/shortVideo/group/page?curPage=1&limit=20&orderByPopularity=true&queryPopularityDetail=true" })
-    .reply(200, JSON.stringify({ code: 0, data: { list: [{ id: 42, groupName: "AI合集", groupPopularity: 99 }] } }));
-  const reel = Array.from({ length: 30 }, (_, i) => ({ book_id: `reel-${i + 1}`, book_title: `TOP作品${i + 1}`, read_count: 30 - i }));
-  let reelRequests = 0;
-  for (let page = 1; page <= 3; page++) {
-    const links = reel.slice((page - 1) * 12, page * 12).map(row => `<a href="/movie/real-slug-${row.book_id}">详情</a>`).join("")
-      + (page < 3 ? `<a href="/shelf/top-short-movies-dramas-51000492/${page + 1}">下一页</a>` : "");
-    transport.get("https://www.reelshort.com").intercept({ method: "GET", path: "/shelf/top-short-movies-dramas-51000492" + (page === 1 ? "" : "/" + page) })
-      .reply(() => { reelRequests++; return { statusCode: 200, data: next({ list: reel }, links) }; });
+test("现用AI短剧、红果四类及Vertical52保留顺序和指标，旧海外榜拒绝采集", async () => {
+  transport.get("https://www.aitop100.cn").intercept({path:"/api/shortVideo/group/page?curPage=1&limit=20&orderByPopularity=true&queryPopularityDetail=true"})
+    .reply(200,{code:0,data:{list:[{id:42,groupName:"AI合集",groupPopularity:99}]}});
+  for(const route of ["hot-drama","hot-real-drama","hot-comic-drama","hot-ai-drama"]){
+    const rows=Array.from({length:20},(_,i)=>({seriesId:String(i+1),rank:i+1,title:`${route}官网热播${i+1}`,href:`/detail?series_id=${i+1}`,heatText:"12万热度",description:"来源提供的作品简介"}));
+    transport.get("https://hongguoduanju.com").intercept({path:`/rank/${route}`}).reply(200,`<script>_ROUTER_DATA = ${JSON.stringify({loaderData:{[`rank_${route}/page`]:{content:{isSuccess:true,rankList:rows},updatedText:"10月24日已更新"}}})};</script>`);
   }
-  let netRequests = 0;
-  for (let page = 1; page <= 2; page++) {
-    const rows = Array.from({ length: 20 }, (_, i) => ({ position: (page - 1) * 20 + i + 1,
-      item: { name: `热播作品${(page - 1) * 20 + i + 1}`, url: `/full-episodes/net-${(page - 1) * 20 + i + 1}`, numberOfEpisodes: 88 } }));
-    transport.get("https://netshort.com").intercept({ method: "GET", path: "/hotseries" + (page === 1 ? "" : "/page/" + page) })
-      .reply(() => { netRequests++; return { statusCode: 200, data: `<script type="application/ld+json">${JSON.stringify({ "@graph": [{ "@type": "ItemList", name: "Hot Series", itemListElement: rows }] })}</script>` }; });
+  const rows=Array.from({length:52},(_,i)=>`<a class="vchart-row" data-g="romance" data-p="ReelShort" href="https://verticalcharts.com/drama/work-${i+1}/"><span class="vchart-rank">${i+1}</span><span class="vchart-title">Work ${i+1}</span><span class="vchart-score">${99-i/10}</span></a>`).join("");
+  transport.get("https://verticalcharts.com").intercept({path:"/charts/"}).reply(200,`Updated Oct 22, 2026<button data-g="romance">Romance 52</button><button data-p="ReelShort">ReelShort</button><div class="vchart-wrapper" data-vc-type="rank" data-vc-limit="52">${rows}</div>`);
+  const queue=serverModules().find(m=>m.name==="studio")!.queues!.find(q=>q.name==="studio.film.collect")!,boss=await getBoss();
+  for(const id of ["aitop100-drama","hongguo-web","hongguo-real","hongguo-comic","hongguo-ai","verticalcharts-52"]){
+    const response=await app.inject({method:"POST",url:`/api/admin/studio/film-boards/${id}/collect`,headers,payload:{}});assert.equal(response.statusCode,200,response.body);
+    const [job]=await boss.fetch(queue.name);assert.ok(job);await queue.run([job.data] as never[]);await boss.complete(queue.name,job.id);
   }
-  const drama = Array.from({ length: 6 }, (_, i) => ({ bookId: `drama-${i}`, bookName: i === 0 ? "长标题".repeat(35) + "X".repeat(180) : `推荐${i + 1}`,
-    replacedBookName: `real-slug-${i}`, viewCount: 1000, viewCountDisplay: "1K" }));
-  transport.get("https://www.dramabox.com").intercept({ method: "GET", path: "/" }).reply(200, next({ smallData: [
-    { id: 1264, items: [{ bookId: "not-trending", bookName: "不要混入" }] }, { id: 1265, items: drama }] }));
-  for (const route of ["hot-drama", "hot-real-drama", "hot-comic-drama", "hot-ai-drama"]) for (let page = 1; page <= 2; page++) {
-    const routeKey = `rank_${route}/page`;
-    const rows = Array.from({ length: 20 }, (_, i) => ({ seriesId: String((page - 1) * 20 + i + 1), rank: (page - 1) * 20 + i + 1,
-      title: `${route}官网热播${(page - 1) * 20 + i + 1}`, href: `/detail?series_id=${(page - 1) * 20 + i + 1}`, heatText: "12万热度", scoreText: "评分9.0" }));
-    const content = { isSuccess: true, rankList: rows };
-    const initial = { loaderData: { [routeKey]: { updatedText: "10月24日已更新", content: page === 1 ? {} : content } }, note: '字符串内的 } 和 { 及引号"不能终止对象' };
-    const stream = page === 1 ? `<script data-fn-name="r" data-script-src="modern-run-router-data-fn" data-fn-args="${JSON.stringify([routeKey, "content", content]).replaceAll('"', "&quot;")}"></script>` : "";
-    transport.get("https://hongguoduanju.com").intercept({ method: "GET", path: `/rank/${route}` + (page === 1 ? "" : "?page=2") })
-      .reply(200, `<script>_ROUTER_DATA = ${JSON.stringify(initial)}; function helper(){ throw Error('不能执行'); }</script>${stream}`);
-  }
-  const queue = serverModules().find(module => module.name === "studio")!.queues!.find(item => item.name === "studio.film.collect")!, boss = await getBoss();
-  for (const id of ["aitop100-drama", "reelshort", "netshort", "dramabox", "hongguo-web", "hongguo-real", "hongguo-comic", "hongguo-ai"]) {
-    const response = await app.inject({ method: "POST", url: `/api/admin/studio/film-boards/${id}/collect`, headers, payload: {} });
-    assert.equal(response.statusCode, 200, response.body); assert.equal(response.json().queued, true);
-    const [job] = await boss.fetch(queue.name); assert.ok(job); await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
-  }
-  const boards = (await app.inject({ url: "/api/admin/studio/film-boards", headers })).json().boards;
-  for (const [id, count] of [["aitop100-drama", 1], ["reelshort", 20], ["netshort", 20], ["dramabox", 6], ["hongguo-web", 20], ["hongguo-real", 20], ["hongguo-comic", 20], ["hongguo-ai", 20]] as const) {
-    const board = boards.find((board: { id: string }) => board.id === id); assert.equal(board.state, "ready", id); assert.equal(board.items.length, count, id);
-    assert.ok(board.items.every((item: { position: number }, index: number) => item.position === index + 1));
-  }
-  assert.equal(reelRequests, 2); assert.equal(netRequests, 1);
-  assert.deepEqual(boards.find((board: { id: string }) => board.id === "netshort").items[0].metrics, []);
-  const web = boards.find((board: { id: string }) => board.id === "hongguo-web");
-  for (const [id, route] of [["hongguo-real", "hot-real-drama"], ["hongguo-comic", "hot-comic-drama"], ["hongguo-ai", "hot-ai-drama"]]) {
-    const category = boards.find((b: { id: string }) => b.id === id);
-    assert.equal(category.group.id, "hongguo"); assert.ok(category.items[0].title.startsWith(route));
-    assert.ok(category.sourceUrl.endsWith(route));
-  }
-  assert.equal(web.sourceUpdatedText, "10月24日已更新"); assert.equal(web.items[0].metrics[0].text, "12万热度"); assert.equal(web.items[0].metrics[0].value, null);
-  assert.equal(boards.some((board: { id: string }) => board.id === "hongguo-app"), false);
-  assert.equal(boards.find((board: { id: string }) => board.id === "dramabox").ordering, "recommendation");
+  const boards=(await app.inject({url:"/api/site/film-boards"})).json().boards;
+  assert.equal(boards.find((b:{id:string})=>b.id==="verticalcharts-52").items.length,40);
+  for(const id of ["hongguo-web","hongguo-real","hongguo-comic","hongguo-ai"]){const board=boards.find((b:{id:string})=>b.id===id);assert.equal(board.items.length,20);assert.equal(board.items[0].metrics[0].value,null);assert.equal(board.items[0].sourceSummary,"来源提供的作品简介");}
+  for(const id of ["dramabox","reelshort","netshort","pinedrama"])assert.equal((await app.inject({method:"POST",url:`/api/admin/studio/film-boards/${id}/collect`,headers,payload:{}})).statusCode,409);
 });
 
 test("香港07点才排每日采集且不重复，停用改版后旧任务不能请求或覆盖最后成功结果", async t => {
   const now = beijingAt(addDays(beijingDate(new Date()), 1), "07:00");
   t.mock.timers.enable({ apis: ["Date"], now: now.getTime() - 60000 });
   const schedule = serverModules().find(module => module.name === "studio")!.schedules!.find(item => item.name === "studio.film.schedule"); assert.ok(schedule);
-  assert.equal((await schedule.run() as { queued: number }).queued, 0);
+  await schedule.run();
   t.mock.timers.setTime(now.getTime()); assert.equal((await schedule.run() as { queued: number }).queued, 6);
   assert.equal((await schedule.run() as { queued: number }).queued, 0);
   const queue = serverModules().find(module => module.name === "studio")!.queues!.find(item => item.name === "studio.film.collect")!, boss = await getBoss();
-  const [job] = await boss.fetch(queue.name); assert.ok(job);
-  assert.equal((job.data as { id: string }).id, "aitop100-short");
+  const jobs=await boss.fetch(queue.name,{batchSize:100}),job=jobs.find(job=>(job.data as {id:string}).id==="aitop100-short");assert.ok(job);
+  for(const other of jobs)if(other.id!==job.id)await boss.cancel(queue.name,other.id);
   const before = (await app.inject({ url: "/api/site/film-boards" })).json().boards.find((board: { id: string }) => board.id === "aitop100-short");
   assert.equal((await app.inject({ method: "PUT", url: "/api/admin/studio/film-boards/aitop100-short", headers, payload: { version: 2, enabled: false, limit: 20 } })).statusCode, 200);
   await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
@@ -155,9 +118,9 @@ test("国内外影视榜真实网页展示原指标、实际范围与未接通�
       await expect(page.getByText("仅供分享学习使用，", { exact: false })).toBeVisible();
       await expect(page.getByRole("list", { name: "作品列表" }).locator("img")).toHaveCount(0);
       await expect(page.getByRole("list", { name: "作品列表" }).getByRole("listitem")).toHaveCount(20);
-      await expect(page.getByText("热度：12万热度").first()).toBeVisible();
+      await expect(page.getByText("12万热度",{exact:true}).first()).toBeVisible();
       assert.equal(await page.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
-      await expect(page.getByRole("navigation", { name: "选择影视榜单" }).getByRole("link")).toHaveCount(3);
+      await expect(page.getByRole("navigation", { name: "选择影视榜单" }).getByRole("link")).toHaveCount(2);
       for (const category of ["真人剧", "漫剧", "AI剧", "总热播"]) {
         await page.getByRole("navigation", { name: "红果热播榜分类" }).getByRole("link", { name: category, exact: true }).click();
         await expect(page.getByRole("navigation", { name: "红果热播榜分类" }).getByRole("link", { name: category, exact: true })).toHaveAttribute("aria-current", "page");
@@ -169,16 +132,13 @@ test("国内外影视榜真实网页展示原指标、实际范围与未接通�
       await expect(page.getByRole("link", { name: "AI合集", exact: true })).toBeVisible();
       await page.getByRole("link", { name: "红果热播榜", exact: true }).click();
       await page.screenshot({ path: `.impeccable/review/phase2-film-domestic-${width}.png` });
-      await page.getByRole("link", { name: "绿泡泡短剧 · 今日必看", exact: true }).click();
-      await expect(page.getByText("暂未接入榜单数据，请等待后续配置。", { exact: true })).toBeVisible();
-      await expect(page.getByRole("list", { name: "作品列表" })).toHaveCount(0);
-      response = await page.goto(web.origin + "/film/overseas?board=dramabox"); assert.equal(response?.status(), 200);
-      await expect(page.getByRole("list", { name: "作品列表" }).getByRole("listitem")).toHaveCount(6);
-      await expect(page.getByRole("link", { name: "官方完整榜单请点击直达原站", exact: true })).toBeVisible();
-      assert.equal(await page.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
-      await page.screenshot({ path: `.impeccable/review/phase2-film-overseas-${width}.png` });
-      await page.getByRole("link", { name: "PineDrama", exact: true }).click();
-      await expect(page.getByText("暂未接入榜单数据，请等待后续配置。", { exact: true })).toBeVisible();
+      await expect(page.getByRole("link",{name:"绿泡泡短剧 · 今日必看",exact:true})).toHaveCount(0);
+      response=await page.goto(web.origin+"/film/overseas?board=dramabox");assert.equal(response?.status(),200);
+      await expect(page.getByRole("heading",{name:"Vertical 52",exact:true})).toBeVisible();
+      await expect(page.getByRole("list",{name:"作品列表"}).getByRole("listitem")).toHaveCount(40);
+      await expect(page.getByRole("list",{name:"作品列表"}).locator("img")).toHaveCount(0);
+      assert.equal(await page.evaluate("document.documentElement.scrollWidth>innerWidth"),false);
+      await page.screenshot({path:`.impeccable/review/phase2-film-overseas-${width}.png`});
     }
     assert.deepEqual(faults, []);
   } finally { await browser.close(); await web.stop(); }

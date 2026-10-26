@@ -52,8 +52,7 @@ export function scoreConfiguredDirection(direction: TopicDirection, context: Dir
       configured: { ...score, policyVersion: policy.version, eligible: direction.score.eligible, gaps } } };
   }
   // The primary core event owns the heat; never take the hottest cited background event.
-  const primary = events.find(event => event.id === direction.primaryCoreEventId)
-    ?? [...events].sort((a, b) => a.id.localeCompare(b.id))[0];
+  const primary = events.find(event => event.id === direction.primaryCoreEventId);
   const ageHours = primary?.time ? (Date.parse(context.asOf) - Date.parse(primary.time.at)) / 3_600_000 : null;
   const F = freshness(ageHours === null || ageHours < 0 ? null : ageHours, { policy: editorial }).decision;
   const observed = primary?.heatObserved ?? null, fresh = primary?.heatFresh ?? null, state = primary?.heatState ?? "unknown";
@@ -66,8 +65,9 @@ export function scoreConfiguredDirection(direction: TopicDirection, context: Dir
   const contributions = { heat: round(score.Hdecision * w.heat / 100), freshness: round(F * w.freshness / 100), impact: round((direction.dimensions.impact ?? 0) * w.impact / 100),
     practical: round((direction.dimensions.practical ?? 0) * w.practical / 100), evidence: round((direction.dimensions.evidence ?? 0) * w.evidence / 100),
     distinctiveness: round((direction.dimensions.distinctiveness ?? 0) * w.distinctiveness / 100) };
-  const special = cited.some(candidate => ["breakout", "important_ai", "major_event", "general_ai", "market_reference"].includes(candidate.path ?? ""));
-  const relevantCore = cited.some(candidate => candidate.evidenceAvailable && candidate.path !== null);
+  const primaryCandidates = cited.filter(candidate => candidate.eventId === primary?.id);
+  const special = primaryCandidates.some(candidate => ["breakout", "major_event"].includes(candidate.path ?? ""));
+  const relevantCore = !!primary && primaryCandidates.some(candidate => candidate.evidenceAvailable && candidate.path !== null);
   const I = direction.dimensions.audience ?? 0, E = direction.dimensions.evidence ?? 0;
   const eligible = direction.gates.evidence && !!direction.viewerBenefit.trim() && relevantCore && E >= editorial.internal.normal.E
     && (special || (I >= editorial.internal.normal.I && score.S >= editorial.internal.normal.S
@@ -145,7 +145,7 @@ export function scoreMaterialV2(record: ScoringRecord, event: ObservedSharedEven
   const published = record.publishedAt;
   // A reprint's own timestamp never makes an old event fresh.
   const ageHours = eventTime ? (Date.parse(asOf) - Date.parse(eventTime.at)) / 3_600_000
-    : (event || shared?.reportingKind === "repost") ? null
+    : (event?.event.timeConflict || shared?.reportingKind === "repost") ? null
     : published ? (Date.parse(asOf) - published.getTime()) / 3_600_000 : null;
   const f = freshness(ageHours === null || ageHours < 0 ? null : ageHours, { policy: editorial });
   const snap = event?.heatV2 ?? heatSnapshot({ canonicalEventId: record.eventId ?? record.materialId, asOf,

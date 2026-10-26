@@ -168,7 +168,7 @@ export const contentImportQueue = defineQueue<{ id: string; token: string; trend
           return current;
         });
         if (!stillCurrent) continue;
-        throw new Error("单条作品未完成导入，请检查平台登录或网络后重试");
+        throw new Error("单条作品未完成导入，请检查平台登录或网络后重试", { cause: error });
       }
     }
   },

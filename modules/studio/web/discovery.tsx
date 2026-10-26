@@ -61,14 +61,14 @@ function TrendDeepReadControls({ onSubmitted }: { onSubmitted: () => void }) {
     }
   }
   return <section id="studio-trend-deep-read" className="studio-settings-panel" aria-label="取得热点原文"><h3>取得热点原文</h3>
-    <p className="studio-caption">先筛出与你创作有关的热点，再读取对应新闻或代表作品的完整内容。只有热搜标题不足以判断选题；每天的名额控制额外采集量。</p>
+    <p className="studio-caption">标题先由本地关键词筛选，不调用模型。相关热点自动尝试取得新闻原文；视频或登录平台再复用代表作品采集。取得正文后，沿普通新闻流程共享分析、公开和精选。</p>
     <p className="studio-caption">已关注博主优先处理。热榜每天按香港时间单独计额，新排队的线索占一个名额；同一线索重试与已收录作品复用不重复占额。B站直接读取榜单作品，其他已接入榜单通过话题搜索取得一条候选原文；候选仍需结合正文判断。</p>
     {read.error && <p role="alert">原文采集设置读取失败。<button onClick={read.refresh}>重试</button></p>}
     {!value && !read.error && <p role="status">正在读取每日名额…</p>}
     {value && <><p className="studio-caption">{value.day} · 已用 {value.usedToday} / {value.dailyLimit}，剩余 {value.remainingToday}。{!value.collectionEnabled && "采集尚未启用。"}</p>
       <form key={value.version} className="studio-filters" onSubmit={async event => {
         event.preventDefault(); const form = new FormData(event.currentTarget);
-        if (await action.run("PUT", "/api/admin/studio/trends/deep-read-settings", { version: value.version, enabled: form.has("enabled"), dailyLimit: Number(form.get("dailyLimit")) }, { success: "深读额度已保存", revalidate: false })) read.refresh();
+        if (await action.run("PUT", "/api/admin/studio/trends/deep-read-settings", { version: value.version, enabled: form.has("enabled"), dailyLimit: Number(form.get("dailyLimit")) }, { success: "代表作品采集额度已保存", revalidate: false })) read.refresh();
       }}><label><input type="checkbox" name="enabled" defaultChecked={value.enabled} /> 自动取得原文</label>
         <label>每天新增线索 <input type="number" name="dailyLimit" min={0} max={100} required defaultValue={value.dailyLimit} /></label>
         <button disabled={action.busy}>保存额度</button></form>

@@ -1,11 +1,46 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { observeEvent, resolveEventTime, type PropagationRow } from "../backend/event-propagation.ts";
 import {
   EDITORIAL_V2, comparableVolume, freshness, headlineBand, heatForDecision, heatSnapshot,
   interpolate, reporterHeat, routePublic, scorePublic, videoHeat,
 } from "../backend/editorial-v2.ts";
 
 const dims = (I: number, M: number, D: number, P: number, F: number) => ({ I, M, D, P, F });
+
+test("直接AI影视精选包含实质模型发布和观看争议，缺测不能要求教程或B70", () => {
+  const kling = routePublic({ dimensions: dims(70, 65, 65, 75, 40), observed: 12.15, freshObserved: 12.15,
+    state: "complete", scope: "direct_ai_film", aiCentral: true, filmRelevant: true });
+  assert.equal(kling.route, "direct_selected");
+  const viewingDebate = routePublic({ dimensions: dims(80, 55, 70, 35, 90), observed: null, freshObserved: null,
+    state: "unknown", scope: "direct_ai_film", aiCentral: true, filmRelevant: true });
+  assert.equal(viewingDebate.route, "direct_selected");
+});
+
+test("资格比较保留精度，不将59.996提前进位到60", () => {
+  const policy = structuredClone(EDITORIAL_V2);
+  policy.public.selected.S = 60;
+  const scored = routePublic({ dimensions: dims(80, 60, 60, 55, 60), observed: 37.48, freshObserved: 37.48,
+    state: "complete", scope: "direct_ai_film", aiCentral: true, filmRelevant: true, policy });
+  assert.equal(scored.route, "direct_all");
+});
+
+test("宣传玩梗引文和23小时前百万播放均不能认定当前出圈", () => {
+  const at = "2026-10-26T12:00:00Z";
+  const row: PropagationRow = { materialId: "news:a", participant: "source:a", reportingKind: "original", scope: "direct",
+    platform: "news", kind: "news", work: "a", views: null, hasMemeEvidence: true, publishedAt: at, observedAt: at };
+  assert.equal(observeEvent([row], true, at).breakout.triggered, false);
+  const videos = [1, 2, 3].map(i => ({ ...row, materialId: `creator:${i}`, participant: `author:${i}`, work: String(i),
+    platform: "bilibili", kind: "video", views: 400000, hasMemeEvidence: false, observedAt: "2026-10-25T13:00:00Z" }));
+  assert.equal(observeEvent(videos, true, at).breakout.triggered, false);
+});
+
+test("同一天日期证据与精确时刻相容，真正冲突才未知", () => {
+  const day = { at: "2026-10-26T00:00:00+08:00", precision: "day" as const, quote: "2026-10-26" };
+  const instant = { at: "2026-10-26T14:30:00+08:00", precision: "instant" as const, quote: "2026-10-26 14:30" };
+  assert.equal(resolveEventTime([{ reportingKind: "original", time: day }, { reportingKind: "original", time: instant }])?.at, instant.at);
+  assert.equal(resolveEventTime([{ reportingKind: "original", time: instant }, { reportingKind: "original", time: { ...day, at: "2026-10-25T00:00:00+08:00" } }]), null);
+});
 
 test("设计样例：公开分数与 route 与 v2 方案一致", () => {
   const examples = [

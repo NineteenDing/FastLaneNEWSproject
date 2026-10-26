@@ -210,7 +210,7 @@ function leadStoryOf(report: ReportDetail): ReportCitation | null {
   return report.sections.flatMap((s) => s.items).find((c) => c.itemId === report.leadItemId && c.available) ?? null;
 }
 
-const WITHDRAWN_NOTE = "该内容已按来源方要求下架或调整展示方式。";
+const WITHDRAWN_NOTE = "该条目当前不可公开阅读；请查看原文或稍后重试。";
 
 /**
  * Sections as pages. A story cited twice appears once, and

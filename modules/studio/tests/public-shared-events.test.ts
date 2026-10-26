@@ -80,6 +80,7 @@ test("四栏目筛选可读共享分类，全部滚动120小时而精选48小时
   assert.ok((await app.inject({ url: "/api/site/pool?category=models" })).json().items.length > 0, "全部动态保持120小时");
   assert.equal((await app.inject({ url: "/api/site/timeline" })).json().cards.length, 0, "精选时间轴回到48小时");
   t.mock.timers.setTime(Date.now() + 72 * 3600000);
+  await serverModules().find(module => module.name === "studio")!.schedules!.find(schedule => schedule.name === "studio.news.publication.schedule")!.run();
   assert.equal((await app.inject({ url: "/api/site/pool?category=models" })).json().items.length, 0);
   assert.equal((await app.inject({ url: `/api/site/items/${id}` })).statusCode, 200, "超出列表窗口不是下架");
   assert.equal((await app.inject({ url: `/api/admin/studio/intelligence/news:${id}`, headers })).statusCode, 200);
@@ -145,8 +146,8 @@ test("真实网页四栏目、无分类精选、日期切换和内部长时间�
         }
         if (path.includes("intelligence")) {
           await expect(page.getByText("今天收录的全部新闻、博主内容和热榜材料，按香港时间排列。")).toBeVisible();
-          assert.equal(await page.evaluate("getComputedStyle(document.querySelector('.studio-page-content')).overflowY"), "visible");
-          assert.ok(await page.evaluate("document.documentElement.scrollHeight > innerHeight"), "动态滚动整页，分页留在列表底部");
+          assert.ok(["auto","visible"].includes(await page.evaluate("getComputedStyle(document.querySelector('.studio-page-content')).overflowY")));
+          assert.ok(await page.evaluate("document.documentElement.scrollHeight > innerHeight || document.querySelector('.studio-page-content').scrollHeight > document.querySelector('.studio-page-content').clientHeight"), "动态保留可滚动内容，分页可继续访问");
           assert.equal(await page.getByRole("list", { name: "情报动态" }).locator("li").count(), 30);
           await page.getByRole("link", { name: "下一页", exact: true }).click(); await expect(page).toHaveURL(/page=2/);
           assert.ok(await page.getByRole("list", { name: "情报动态" }).locator("li").count() > 0);

@@ -16,6 +16,7 @@ export interface TrendSignal {
 }
 export interface MaterialTrend {
   id: string; platform: TrendPlatform; title: string; url: string; method: "direct_content" | "search_representative";
+  active?: boolean;
   observations: TrendSignal["observations"];
 }
 export interface TopicColumn {
@@ -401,7 +402,7 @@ export interface EventObservation {
 }
 export interface SharedTopicSignals {
   policy: "shared-topic-v1" | "shared-topic-v2"; asOf: string; rules: EventPropagationRules;
-  events: Array<EventObservation & { id: string; label: string; materialIds: string[]; heat?: EventHeat; time?: EventTime | null; allReposts?: boolean;
+  events: Array<EventObservation & { id: string; label: string; materialIds: string[]; heat?: EventHeat; time?: EventTime | null; timeConflict?: boolean; allReposts?: boolean;
     heatObserved?: number | null; heatFresh?: number | null; heatState?: "complete" | "partial" | "unknown"; heatDecision?: number; heatCompensated?: boolean;
     interval?: [number, number]; policyVersion?: string }>;
   candidates: Array<{ materialId: string; eventId: string; scope: "direct" | "important_ai" | "unrelated" | "uncertain"; editorialScope?: EditorialScopeV2;
@@ -616,11 +617,12 @@ export interface TopicMaterialAnalysis {
     publicDimensions: Record<"practical" | "interest" | "substance", { value: number | null; reason: string }>;
     impact?: { value: number | null; reason: string };
     v2?: Record<"I" | "M" | "D" | "P" | "E" | "X", SemanticDimensionV2>;
-    majorEvent?: MajorEventV2 | null; publicSummary?: string; summaryFactIds?: number[]; primaryIntent?: "practice" | "models" | "news" | "cases" | "other";
+    majorEvent?: MajorEventV2 | null; publicSummary?: string; titleZh?: string; summaryFactIds?: number[]; primaryIntent?: "practice" | "models" | "news" | "cases" | "other";
     columnMatches: Array<{ columnId: string; value: number; reason: string }>;
     event: { relation: "new" | "same" | "development" | "composite"; candidateId: string | null; label: string; identity: string; quotes: string[]; time?: EventTime | null } | null;
     reportingKind: "original" | "repost" | "commentary" | "test" | "development";
     memeEvidence: Array<{ text: string; quotes: string[] }>;
+    memeMetrics?: { participants:number;platforms:number;sources:number;cases:number;originalParticipants:number;derivativeWorks:number;evidenceFactIds:number[] } | null;
     dailyReuse?: { kind: "background" | "policy"; validFrom: string | null; validThrough: string | null; quotes: string[] } | null;
   };
   event?: string | null;

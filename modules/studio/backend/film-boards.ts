@@ -1,3 +1,4 @@
+import { submitFilmMetadata } from "./film-metadata.ts";
 import { unlink } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -55,8 +56,8 @@ export async function filmBoards(input: unknown = {}): Promise<FilmBoardsPage> {
       items: (row?.snapshot?.items ?? []).slice(0, limit).map(item => ({ id: item.id, position: item.position, title: item.title, url: item.url, author: item.author,
         sourceSummary: item.sourceSummary ?? null, ...(item.genreKeys ? { genreKeys: item.genreKeys } : {}),
         ...(item.sourcePlatform ? { sourcePlatform: item.sourcePlatform, sourcePlatformLabel: item.sourcePlatformLabel ?? null } : {}),
-        ...(item.productionCountries ? { productionCountries: item.productionCountries, countryStatus: item.countryStatus } : {}),
-        ...(item.summaryKind ? { summaryKind: item.summaryKind, summaryStatus: item.summaryStatus } : {}),
+        productionCountries: item.productionCountries ?? [], countryStatus: item.countryStatus ?? "not_provided",
+        summaryKind: item.summaryKind ?? (item.sourceSummary ? "work" : "missing"), summaryStatus: item.summaryStatus ?? (item.sourceSummary ? "ready" : "pending"),
         ...(board.region === "overseas" ? { titleZh: translations.get(filmTextKey(item))?.title_zh ?? null, summaryZh: translations.get(filmTextKey(item))?.summary_zh ?? null } : {}),
         metrics: heatMetrics(item.metrics) })) };
   }) };
@@ -66,7 +67,7 @@ export async function filmBoardImageAllowed(_url: string) { return false; }
 
 export async function submitFilmBoard(id: string, actor: string) {
   const board = filmBoardCatalog.find(board => board.id === id);
-  if (!board?.supported) throw new Conflict("暂未接入这个榜单的数据接口");
+  if (!board?.supported || board.retired) throw new Conflict("暂未接入这个榜单的数据接口");
   if (!collectionEnabled()) throw new Conflict("采集尚未启用");
   await ensureQueue(filmBoardQueue.name, filmBoardQueue.options);
   return sql.begin(async db => {
@@ -88,18 +89,17 @@ export async function submitFilmBoard(id: string, actor: string) {
 export async function scheduleFilmBoards(now = new Date()) {
   if (!collectionEnabled()) return { queued: 0 };
   const cutoff = beijingAt(beijingDate(now), "07:00"), domesticDue = now >= cutoff;
-  // Vertical Charts publishes Thursday 09:00 ET; check after 09:15 New York time, with bounded catch-up checks.
-  const ny = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
-    .formatToParts(now).map(part => [part.type, part.value]));
-  const nyMinutes = Number(ny.hour) * 60 + Number(ny.minute);
-  const verticalDue = (ny.weekday === "Thu" && nyMinutes >= 9 * 60 + 15) || (["Fri", "Sat"].includes(ny.weekday ?? "") && nyMinutes >= 9 * 60 + 15);
+  const parts = (value: Date) => Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year:"numeric",month:"2-digit",day:"2-digit",weekday:"short",hour:"2-digit",minute:"2-digit",hourCycle:"h23" }).formatToParts(value).map(part=>[part.type,part.value]));
+  const ny=parts(now),minutes=Number(ny.hour)*60+Number(ny.minute),day=`${ny.year}-${ny.month}-${ny.day}`;
+  const latestBucket=ny.weekday==="Thu" ? [555,675,1035].filter(value=>minutes>=value).at(-1) : minutes>=555?555:undefined;
   const saved = await sql<Saved[]>`SELECT id, definition, checked_at FROM studio_film_boards`;
   let queued = 0;
   for (const board of filmBoardCatalog.filter(board => board.supported && !board.retired)) {
     const row = saved.find(row => row.id === board.id);
     if (row && !row.definition.enabled) continue;
     if (board.region === "overseas") {
-      if (!verticalDue || row?.checked_at && now.getTime() - row.checked_at.getTime() < 20 * 3600_000) continue;
+      const checked=row?.checked_at?parts(row.checked_at):null,checkedDay=checked?`${checked.year}-${checked.month}-${checked.day}`:null;
+      if (row?.checked_at && (latestBucket===undefined || checkedDay===day && Number(checked!.hour)*60+Number(checked!.minute)>=latestBucket)) continue;
     } else if (!domesticDue || row?.checked_at && row.checked_at >= cutoff) continue;
     if ((await submitFilmBoard(board.id, "system:film-boards"))?.queued) queued++;
   }
@@ -107,15 +107,17 @@ export async function scheduleFilmBoards(now = new Date()) {
 }
 
 async function collect(job: Job) {
+  if (filmBoardCatalog.find(board=>board.id===job.id)?.retired) return;
   if (!collectionEnabled()) throw new QueueDeferred("采集已暂停");
   const [row] = await sql<Saved[]>`UPDATE studio_film_boards SET state = 'running', started_at = now(), updated_at = now()
     WHERE id = ${job.id} AND version = ${job.version} AND run_token = ${job.token} AND state = 'queued' AND (definition->>'enabled')::boolean
-    RETURNING id, version, definition`;
+    RETURNING id, version, definition, snapshot`;
   if (!row) return;
   try {
-    const snapshot = await readFilmBoard(job.id);
+    let snapshot = await readFilmBoard(job.id, row.snapshot);
+    if (snapshot.sourceRevision && snapshot.sourceRevision === row.snapshot?.sourceRevision) snapshot = { ...snapshot, fetchedAt: row.snapshot.fetchedAt };
     if (!collectionEnabled()) { await sql`UPDATE studio_film_boards SET state = 'pending' WHERE id = ${job.id} AND run_token = ${job.token}`; return; }
-    await sql`UPDATE studio_film_boards SET snapshot = ${sql.json(snapshot as never)}, state = ${snapshot.items.length ? "ready" : "empty"}, display_policy_version = 1,
+    await sql`UPDATE studio_film_boards SET snapshot = ${sql.json(snapshot as never)}, state = ${snapshot.items.length ? "ready" : "empty"}, display_policy_version = 2,
       checked_at = now(), error_code = NULL, updated_at = now() WHERE id = ${job.id} AND version = ${job.version} AND run_token = ${job.token}`;
   } catch {
     await sql`UPDATE studio_film_boards SET state = ${collectionEnabled() ? "failed" : "pending"}, checked_at = now(),
@@ -124,12 +126,13 @@ async function collect(job: Job) {
     return;
   }
   // Translation is independent: an enqueue failure must not mark a saved collection as failed.
+  await submitFilmMetadata(job.id);
   await submitFilmTranslation(job.id);
 }
 
 export async function saveFilmBoard(id: string, input: unknown, actor: string) {
   const board = filmBoardCatalog.find(board => board.id === id);
-  if (!board) throw new Conflict("未找到这个影视榜单");
+  if (!board || board.retired) throw new Conflict("这个影视榜单已退役，历史保留");
   const value = settings.parse(input);
   return sql.begin(async db => {
     await db`SELECT pg_advisory_xact_lock(hashtextextended(${"studio.film-board:" + id}, 0))`;
@@ -147,7 +150,7 @@ export async function saveFilmBoard(id: string, input: unknown, actor: string) {
 export async function minimizeLegacyFilmBoards() {
   await sql.begin(async tx => {
     await tx`SELECT pg_advisory_xact_lock(hashtext('studio-storage-space'))`;
-    const rows = await tx<Array<{ id: string; definition: { enabled: boolean }; snapshot: FilmBoardSnapshot | null }>>`SELECT id, definition, snapshot FROM studio_film_boards WHERE display_policy_version = 0 ORDER BY id LIMIT 25 FOR UPDATE`;
+    const rows = await tx<Array<{ id: string; definition: { enabled: boolean }; snapshot: FilmBoardSnapshot | null }>>`SELECT id, definition, snapshot FROM studio_film_boards WHERE display_policy_version < 2 ORDER BY id LIMIT 25 FOR UPDATE`;
     if (!rows.length) return;
     const covers = [...new Set(rows.flatMap(row => (row.snapshot?.items ?? []).flatMap(item => (item as unknown as { coverUrl?: string }).coverUrl ?? [])))];
     // imgcache is shared. Preserve even private/withdrawn news references, not only currently public images.
@@ -168,13 +171,14 @@ export async function minimizeLegacyFilmBoards() {
     }
     if (cacheKeys.size) for (const [file] of await scanImageFiles(["imgcache"])) if (cacheKeys.has(file)) await unlink(file);
     for (const row of rows) {
-      const snapshot = row.snapshot ? { ...row.snapshot, requestedLimit: 20, items: row.snapshot.items.slice(0, 20).map(item => ({
+      const snapshot = row.snapshot ? { ...row.snapshot, requestedLimit: filmBoardCatalog.find(board=>board.id===row.id)?.limit ?? 20, items: row.snapshot.items.slice(0, filmBoardCatalog.find(board=>board.id===row.id)?.limit ?? 20).map(item => ({
         id: item.id, position: item.position, title: item.title, url: item.url, author: item.author,
-        ...(filmBoardCatalog.find(board => board.id === row.id)?.region === "overseas" ? { sourceSummary: item.sourceSummary ?? (item as unknown as { description?: string }).description ?? null } : {}),
+        sourceSummary: item.sourceSummary ?? (item as unknown as { description?: string }).description ?? null,
+        titleZh:item.titleZh,summaryZh:item.summaryZh,productionCountries:item.productionCountries,countryStatus:item.countryStatus,summaryKind:item.summaryKind,summaryStatus:item.summaryStatus,genreKeys:item.genreKeys,sourcePlatform:item.sourcePlatform,sourcePlatformLabel:item.sourcePlatformLabel,
         metrics: heatMetrics(item.metrics),
       })) } : null;
-      await tx`UPDATE studio_film_boards SET definition = ${tx.json({ enabled: row.definition.enabled, limit: 20 })}, snapshot = ${snapshot ? tx.json(snapshot as never) : null},
-        version = version + 1, run_token = NULL, display_policy_version = 1, state = CASE WHEN state IN ('queued', 'running') THEN 'pending' ELSE state END WHERE id = ${row.id}`;
+      await tx`UPDATE studio_film_boards SET definition = ${tx.json({ enabled: row.definition.enabled && !filmBoardCatalog.find(board=>board.id===row.id)?.retired, limit: filmBoardCatalog.find(board=>board.id===row.id)?.limit ?? 20 })}, snapshot = ${snapshot ? tx.json(snapshot as never) : null},
+        version = version + 1, run_token = NULL, display_policy_version = 2, state = CASE WHEN state IN ('queued', 'running') THEN 'pending' ELSE state END WHERE id = ${row.id}`;
     }
   });
 }

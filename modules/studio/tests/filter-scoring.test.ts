@@ -60,19 +60,19 @@ test("当前新闻双评分使用共享语义与本地热度时效，改数字�
   assert.equal(score.policyVersion, 2); assert.equal(score.public.destination, "selected_candidate"); assert.equal(score.route, "direct_selected");
   assert.equal(score.public.contributions.practical, 8); assert.equal(score.public.contributions.interest, 15);
   assert.equal(score.public.contributions.impact, 22.5); assert.equal(score.public.contributions.substance, 11.25);
-  assert.equal(score.public.contributions.freshness, 5); assert.equal(score.public.contributions.heat, 2.91);
-  assert.equal(score.public.total, 64.66, "2小时的事件，1小时前发布的1个独立主体，连续锚点与24小时衰减");
-  assert.equal(score.heatState, "complete"); assert.ok(score.heatFresh > 14 && score.heatFresh < 15);
+  assert.equal(score.public.contributions.freshness, 5); assert.equal(score.public.contributions.heat, 8);
+  assert.equal(score.public.total, 69.75, "2小时的事件，1小时前发布的1个独立主体，连续锚点与24小时衰减");
+  assert.equal(score.heatState, "partial"); assert.ok(score.heatFresh > 14 && score.heatFresh < 15);
   assert.equal(score.internal.contributions.impact, 18); assert.equal(score.internal.contributions.practical, 4);
-  assert.equal(score.internal.contributions.evidence, 12); assert.equal(score.internal.total, 62.91);
+  assert.equal(score.internal.contributions.evidence, 12); assert.equal(score.internal.total, 68);
   assert.equal(score.freshness.at, "2026-10-24T02:00:00.000Z"); assert.equal(score.freshness.basis, "event_evidence");
   assert.equal(score.columnMatches[0].publicColumn, "models"); assert.equal(calls, 1);
   const policy = (await app.inject({ url: "/api/admin/studio/filter-settings", headers })).json().policy;
   assert.equal((await app.inject({ method: "PUT", url: "/api/admin/studio/filter-settings", headers, payload: { ...policy,
     editorial: { ...policy.editorial, public: { ...policy.editorial.public,
-      weights: { ...policy.editorial.public.weights, practical: 0, heat: 30 } } } } })).statusCode, 200);
+      selected:{...policy.editorial.public.selected,S:68}, weights: { ...policy.editorial.public.weights, practical: 0, heat: 30 } } } } })).statusCode, 200);
   const changed = (await app.inject({ url, headers })).json();
-  assert.equal(changed.policyVersion, 3); assert.equal(changed.public.total, 58.12); assert.equal(changed.public.destination, "all_candidate");
+  assert.equal(changed.policyVersion, 3); assert.equal(changed.public.total, 65.75); assert.equal(changed.public.destination, "all_candidate");
   assert.equal(calls, 1); assert.equal((await scheduleTopicMaterialAnalyses()).queued, 0);
 });
 
@@ -88,11 +88,11 @@ test("最近48小时试算展示新旧分数与精选去向，严格大于门槛
   assert.equal(response.statusCode, 200, response.body);
   const preview = response.json(); assert.equal(preview.total, 1); assert.equal(preview.rows.length, 1);
   assert.equal(preview.startsAt, "2026-10-19T04:00:00.000Z");
-  assert.equal(preview.rows[0].before.public.total, 58.12); assert.equal(preview.rows[0].after.public.total, 64.66);
+  assert.equal(preview.rows[0].before.public.total, 65.75); assert.equal(preview.rows[0].after.public.total, 69.75);
   assert.equal(preview.rows[0].before.public.destination, "all_candidate"); assert.equal(preview.rows[0].after.public.destination, "selected_candidate");
   assert.equal(preview.changedCount, 1); assert.equal(preview.rows[0].beforeRank, 1); assert.equal(preview.rows[0].afterRank, 1);
   const stricter = await app.inject({ method: "POST", url, headers, payload: { policy: { ...proposed, editorial: { ...proposed.editorial,
-    public: { ...proposed.editorial.public, selected: { ...proposed.editorial.public.selected, S: 64.67 } } } } } });
+    public: { ...proposed.editorial.public, selected: { ...proposed.editorial.public.selected, S: 69.76 } } } } } });
   assert.equal(stricter.json().rows[0].after.public.destination, "all_candidate", "总分低于v2精选门槛时不精选");
   assert.equal((await app.inject({ url: "/api/admin/studio/filter-settings", headers })).json().policy.editorial.public.weights.practical, 0);
   assert.equal((await app.inject({ method: "POST", url, headers, payload: { policy: { ...proposed, version: 1 } } })).statusCode, 409);
@@ -159,7 +159,7 @@ test("网页修改后须先试算再保存，切换设置保留输入，桌面�
   const page = await context.newPage(), beforeCalls = calls;
   try {
     await page.goto(web.origin + "/admin/studio/settings/filters"); await page.locator('input[name="password"]').fill(config.adminPassword!); await page.locator('button[type="submit"]').click();
-    const panel = page.getByRole("region", { name: "内容筛选", exact: true }), publicPanel = panel.locator("section").filter({ has: page.getByRole("heading", { name: "公开新闻", exact: true }) });
+    const panel = page.getByRole("region", { name: "内容筛选", exact: true }), publicPanel = panel.locator("section").filter({ has: page.getByRole("heading", { name: "公开新闻 · editorial-v2", exact: true }) });
     await expect(panel.getByRole("button", { name: "保存这版规则", exact: true })).toBeDisabled();
     await publicPanel.getByLabel("可操作价值权重", { exact: true }).fill("15");
     await expect(panel.getByRole("button", { name: "试算最近120小时", exact: true })).toBeDisabled();
@@ -182,3 +182,4 @@ test("网页修改后须先试算再保存，切换设置保留输入，桌面�
     assert.equal(saved.version, 4); assert.equal(saved.editorial.public.weights.practical, 15); assert.equal(calls, beforeCalls);
   } finally { await browser.close(); await web.stop(); }
 });
+

@@ -1,3 +1,4 @@
+import { serverModules } from "../modules.ts";
 // Stories (events) and the hot ranking through the public read layer. The website sees heat values;
 // v1 and MCP only see ranks and counts.
 import type { HeatPoint, HotResponse, StoryDetail, StoryReportView } from "@aihot/contracts/site";
@@ -208,8 +209,9 @@ async function sparklines(storyIds: number[], at: Date): Promise<Map<number, Arr
     // Use the same continuously observed cohort as the event page, never join unrelated hourly totals.
     const out = new Map<number, Array<number | null>>();
     for (const id of storyIds) {
-      const points = await heatSeries(id, at, 1), line: Array<number | null> = Array.from({ length: SPARK_HOURS + 1 }, () => null);
-      for (const point of points) { const slot = Math.round((point.hour.getTime() - start) / 3600000); if (slot >= 0 && slot < line.length) line[slot] = point.heat; }
+      const points = await heatSeries(id, at, 1), slots = 288, step = 300000, minuteEnd = Math.floor(at.getTime()/step)*step, minuteStart = minuteEnd - 86400000;
+      const line: Array<number | null> = Array.from({ length: slots + 1 }, () => null);
+      for (const point of points) { const slot = Math.round((point.hour.getTime() - minuteStart) / step); if (slot >= 0 && slot < line.length) line[slot] = point.heat; }
       out.set(id, line);
     }
     return out;
@@ -252,7 +254,7 @@ async function queryHotCovers({ entries }: HotRanking) {
 
 export async function loadHot(): Promise<HotResponse> {
   const ranking = await latestHotRanking();
-  if (!ranking) return { computedAt: null, windowHours: 48, entries: [] };
+  if (!ranking) return { computedAt: null, windowHours: serverModules().some(module=>module.publication?.hot) ? 0 : 48, entries: [] };
   const at = new Date(ranking.computedAt);
   const [sparks, covers, extras] = await Promise.all([
     sparklines(
@@ -264,7 +266,7 @@ export async function loadHot(): Promise<HotResponse> {
   ]);
   return {
     computedAt: ranking.computedAt,
-    windowHours: 48,
+    windowHours: serverModules().some(module=>module.publication?.hot) ? 0 : 48,
     entries: ranking.entries.map((e) => {
       const picture = covers.get(e.storyId);
       const coverUrl = picture ? proxiedImage(picture.url, "full") : null;

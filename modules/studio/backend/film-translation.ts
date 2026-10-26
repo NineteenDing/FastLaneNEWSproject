@@ -23,7 +23,7 @@ async function snapshot(id: string) {
   return (await sql<{ snapshot: FilmBoardSnapshot | null; enabled: boolean }[]>`SELECT snapshot, (definition->>'enabled')::boolean AS enabled FROM studio_film_boards WHERE id = ${id}`)[0];
 }
 export async function submitFilmTranslation(id: string, retry = false) {
-  if (filmBoardCatalog.find(board => board.id === id)?.region !== "overseas" || !await modelWorkAllowed()) return { queued: false };
+  if (filmBoardCatalog.find(board => board.id === id)?.retired || filmBoardCatalog.find(board => board.id === id)?.region !== "overseas" || !await modelWorkAllowed()) return { queued: false };
   const row = await snapshot(id);
   if (!row?.enabled || !row.snapshot?.items.length) return { queued: false };
   const cached = await savedFilmTranslations(row.snapshot.items);
@@ -55,6 +55,7 @@ export const filmTranslationQueue = defineQueue<Job>({ name: "studio.film.transl
   options: { policy: "short", retryLimit: 1, retryDelay: 60, expireInSeconds: 600 },
   worker: { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2, groupConcurrency: 1 }, admission: createModelAdmission(),
   async run(jobs) { for (const job of jobs) {
+    if (filmBoardCatalog.find(board=>board.id===job.id)?.retired) continue;
     const row = await snapshot(job.id);
     if (!row?.enabled || row.snapshot?.fetchedAt !== job.snapshotAt) continue;
     const cached = await savedFilmTranslations(row.snapshot.items);

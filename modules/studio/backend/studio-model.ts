@@ -33,7 +33,7 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   const callerBeforeCall = options.beforeCall;
   if (capability === "studioReferenceVision") await referenceVisionModel();
   const beforeCall = async () => { await beforeModelCall(); await callerBeforeCall?.(); };
-  options = { ...options, promptVersion: `${options.promptVersion}:media-observations-v1`, system: options.system +
+  options = { ...options, promptVersion: `${options.promptVersion}:media-observations-v1`, system: options.system + "只返回任务要求的合法JSON对象，不输出Markdown代码围栏或分析过程。" +
     "媒体观察约束：transcript.rhythm为本地信号测量。低能量不等于说话停顿，背景音乐可能掩盖停顿；audio时间基准decoded_audio只覆盖实际解码音轨，不能把音轨结束后的画面当实测静音。" +
     "采样画面变化不等于精确切镜：visual以首帧为零点、每0.5秒采样，运动/字幕/闪光可触发，短镜头可能漏掉；须说明sampledUntilSeconds、truncated及缺失字段，不能声称完整画面理解。" +
     "缺少rhythm或其中audio/visual为null表示没有该项观察，不能从ASR断句或少量关键帧补造语音/画面节奏。不能推断完播率、留存、收益或博主动机已被证实。" +

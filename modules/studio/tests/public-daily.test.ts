@@ -290,7 +290,7 @@ test("真实日报网页只保留日报入口，头条不在栏目重复，回�
     const response = await page.goto(web.origin + "/daily"); assert.equal(response?.status(), 200);
     await expect(page.getByRole("heading", { level: 2, name: /^普通更新：当日/ })).toHaveCount(1);
     await page.goto(web.origin + `/daily/${addDays(day, 6)}`);
-    await expect(page.getByRole("heading", { name: /^广泛讨论的新事件/ })).toHaveCount(1);
+    await expect(page.getByRole("heading", { level:2, name: /^广泛讨论的新事件/ })).toHaveCount(1);
     await page.goto(web.origin + `/daily/${addDays(day, 3)}`);
     await expect(page.getByLabel("本期说明", { exact: true })).toContainText("不足10");
     assert.equal(calls, before);

@@ -29,9 +29,9 @@ async function queryLatestHotRanking(): Promise<HotRanking | null> {
   const now = new Date();
   // Revalidate only the saved top ten. Permission changes must not leave private names or metrics
   // in a stored ranking until its next scheduled refresh; this never calls a model or writes a row.
-  const entries = hasPreparedPublication() ? (await calculateHotRanking(now, row.entries.map(entry => entry.storyId))).entries : row.entries;
+  const entries = hasPreparedPublication() ? (await calculateHotRanking(now)).entries : row.entries;
   const current = entries.length ? await sql<{ story_id: number; article_id: string; story_title: string; url: string; source_name: string; latest_at: Date }[]>`
-    SELECT DISTINCT ON (f.story_id, p.article_id) f.story_id, p.article_id, ${publicStoryTitle(now)} AS story_title, p.url, s.name AS source_name,
+    SELECT DISTINCT ON (f.story_id, p.article_id) f.story_id, p.article_id, p.title AS story_title, p.url, s.name AS source_name,
       latest.at AS latest_at
     FROM facts f JOIN stories st ON st.id = f.story_id JOIN fact_articles fa ON fa.fact_id = f.id JOIN publications p ON p.article_id = fa.article_id
     JOIN sources s ON s.id = p.source_id
@@ -73,9 +73,14 @@ async function queryExtras(ranking: HotRanking): Promise<Extras> {
       ORDER BY s.id, (a.id IS NULL), a.discovered_at DESC, a.id DESC`,
     storyTexts(ids),
   ]);
+  const representatives = ranking.entries.flatMap(entry => entry.representativeItemId ?? []);
+  const summaries = representatives.length ? await sql<{id:string;summary:string|null;title:string}[]>`SELECT p.article_id AS id,p.summary,p.title FROM publications p
+    WHERE p.article_id=ANY(${representatives}::text[]) AND ${listedCondition(new Date())}` : [];
+  const byId = new Map(summaries.map(row => [row.id,row]));
   return {
     faces: new Map(faces.map((f) => [f.name, f.icon_url ?? f.avatar])),
-    texts: new Map([...texts].map(([id, t]) => [id, { summary: t.digest ?? t.summary, latest: t.latest?.title ?? null }])),
+    texts: new Map(ranking.entries.map(entry => { const rep=byId.get(entry.representativeItemId??"");
+      const legacy=texts.get(entry.storyId);return [entry.storyId,{summary:rep?.summary??legacy?.digest??legacy?.summary??null,latest:null}]; })),
   };
 }
 

@@ -250,6 +250,8 @@ export interface ServerModule {
     browseWindowHours?: number;
     /** Prepared judgement replaces the engine's analysis; null means not approved, never a legacy fallback. */
     judgement?: (db: Db, articleId: string) => Promise<PublicationJudgement | null>;
+    hot?: { ruleVersion: string; calculate: (at?: Date, storyIds?: number[]) => Promise<{ entries: import("./events/hot.ts").HotEntry[]; coverage: Record<string, unknown> }>;
+      series: (storyId: number, now?: Date, days?: number) => Promise<Array<{ hour: Date; heat: number; participants: number }>> };
     /** A formerly signed URL still needs a currently authorized public owner (routes/media.ts). */
     imageAllowed?: (url: string) => Promise<boolean> };
   /** Sources whose selected articles keep independent cards/seats without changing admission or event identity (publication/rules.ts, scope.ts). */

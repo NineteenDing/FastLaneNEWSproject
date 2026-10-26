@@ -5,7 +5,7 @@ import { contentLink, submitContentImport, contentImportQueue } from "./content-
 import { ensureQueue } from "@aihot/backend/jobs/queue";
 import { creatorsCollecting } from "./creator-collection.ts";
 
-const defaults = { version: 0, enabled: true, dailyLimit: 6 };
+const defaults = { version: 0, enabled: true, dailyLimit: 24 };
 const dayOf = () => new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10);
 class QuotaReached extends Error {}
 async function settings(db: typeof sql | Tx) {
@@ -42,9 +42,11 @@ export async function submitTrendDeepRead(input: unknown, actor: string) {
     LEFT JOIN studio_trend_deep_reads d ON d.signal_id = s.id AND d.relevance_key = s.relevance_key
     LEFT JOIN studio_content_imports i ON i.id = d.import_id
     WHERE source.enabled AND NOT source.archived AND r.state = 'completed' AND r.result->>'decision' = 'relevant'
+      AND s.last_seen_at >= now() - interval '2 hours'
+      AND NOT EXISTS (SELECT 1 FROM studio_trend_event_links l WHERE l.signal_id=s.id)
       AND (d.signal_id IS NULL OR i.state = 'interrupted' OR (${query.retryFailed} AND i.state <> 'ready'
         AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = ${contentImportQueue.name} AND j.id = i.job_id AND j.state IN ('created', 'retry', 'active'))))
-    ORDER BY s.first_seen_at, s.id LIMIT 50`;
+    ORDER BY s.last_seen_at DESC, s.id LIMIT 50`;
   let queuedCount = 0, linkedCount = 0, limitedCount = 0, awaitingRepresentativeCount = 0;
   for (const candidate of candidates) {
     let representative: { platform: "weibo" | "douyin" | "kuaishou" | "zhihu" | "tieba"; keyword: string } | undefined;

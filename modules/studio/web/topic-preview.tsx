@@ -34,7 +34,7 @@ export function TopicPreview({ preview }: { preview: CurrentTopicPreview }) {
     {preview.error && <p className="studio-notice" role="alert">{preview.error}</p>}
     {preview.inputIssue && <p className="studio-notice" role="alert">{preview.inputIssue}</p>}
     {message && <p className="studio-caption" role="status">{message}</p>}
-    {preview.capturedAt && <p className="studio-caption">草案版本 {preview.version} · 依据保存于 {clock.format(new Date(preview.capturedAt))} · 纳入 {preview.includedMaterialCount} 条完整正文或转写。
+    {preview.capturedAt && <p className="studio-caption">草案版本 {preview.version} · 依据保存于 {clock.format(new Date(preview.capturedAt))} · 当期共 {preview.materialCount} 条，草案纳入 {preview.includedMaterialCount} 条完整正文或转写。草案优先复用已分析合格候选（最多60条）；正式截止批次仍逐条归属全部材料。
       {preview.generatedAt && <> 生成于 {clock.format(new Date(preview.generatedAt))}。</>} 当前未纳入的待处理材料仍在下方列表，不表示已经全部筛完。</p>}
     {preview.result && preview.columns && <TopicDirectionColumns columns={preview.columns} result={preview.result} references={preview.referenceMaterials ?? []} />}
     {preview.columns && <details className="studio-batch-rules"><summary>查看草案使用的栏目规则</summary>

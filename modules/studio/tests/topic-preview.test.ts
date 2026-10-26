@@ -253,7 +253,7 @@ test("栏目当前选题由后台每五分钟检查，十五分钟内合并更�
   assert.equal((await app.inject({ url: "/api/admin/studio/topic-batches", headers })).json().total, 0);
 });
 
-test("候选草案让出常规采集执行位，等待期间不发模型请求且恢复沿原输入继续", async t => {
+test("候选草案让出用户写稿执行位，普通持续采集不会造成饥饿", async t => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-21T14:00:00Z") });
   config.modelCallsEnabled = true; await resources.warm();
   await upsertMaterial({ sourceId: "topic-preview-news", title: "配音检查的新增条件", url: "https://preview.example/priority", via: "import",
@@ -264,11 +264,14 @@ test("候选草案让出常规采集执行位，等待期间不发模型请求�
   assert.ok(job); const pending = (await app.inject({ url: endpoint, headers })).json(), calls = provider.hits();
   const collecting = await app.inject({ method: "POST", url: "/api/admin/sources/topic-preview-news/fetch", headers, payload: {} });
   assert.equal(collecting.statusCode, 200); const priority = collecting.json().jobId; assert.ok(priority);
+  await boss.createQueue("studio.writing.generate");const writing=await boss.send("studio.writing.generate",{});assert.ok(writing);
   try {
     await assert.rejects(queue.run([job.data] as never[]), QueueDeferred);
     assert.equal(provider.hits(), calls); assert.equal((await app.inject({ url: endpoint, headers })).json().state, "queued");
-  } finally { await boss.cancel("sources.fetch", priority); }
-  await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
+  } finally { await boss.cancel("studio.writing.generate",writing); }
+  // Keep the ordinary ingestion pending: the preview must still complete.
+
+  await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);await boss.cancel("sources.fetch",priority);
   const completed = (await app.inject({ url: endpoint, headers })).json();
   assert.equal(completed.state, "draft"); assert.equal(completed.version, pending.version + 1); assert.equal(completed.capturedAt, "2026-10-21T14:00:00.000Z");
   assert.equal(provider.hits(), calls + 2);
@@ -322,12 +325,14 @@ test("真实网页可查看候选七点与原链接，显式更新且按原规�
     await openTopicProcessing(page);
     const doneCalls = provider.hits(); assert.equal(doneCalls, calls + 2);
     await section.getByRole("button", { name: "刷新草案进度", exact: true }).click(); assert.equal(provider.hits(), doneCalls);
-    const renamed = await app.inject({ method: "PATCH", url: "/api/admin/studio/columns/practice", headers, payload: { version: 1, name: "新实操标准" } });
+    const columns=(await app.inject({url:"/api/admin/studio/columns",headers})).json().rows;
+    const currentVersion=columns.find((column:{id:string})=>column.id==="practice").version;
+    const renamed = await app.inject({ method: "PATCH", url: "/api/admin/studio/columns/practice", headers, payload: { version: currentVersion, name: "新实操标准" } });
     assert.equal(renamed.statusCode, 200);
     await section.getByRole("button", { name: "刷新草案进度", exact: true }).click(); await expect(section).toContainText("栏目规则已有变化");
     await section.getByText("查看草案使用的栏目规则", { exact: true }).click();
-    await expect(section.getByRole("heading", { name: "实操与提效 · 版本 1", exact: true })).toBeVisible();
-    await expect(section.getByRole("heading", { name: "新实操标准 · 版本 2", exact: true })).toHaveCount(0);
+    await expect(section.getByRole("heading", { name: `实操与提效 · 版本 ${currentVersion}`, exact: true })).toBeVisible();
+    await expect(section.getByRole("heading", { name: `新实操标准 · 版本 ${currentVersion+1}`, exact: true })).toHaveCount(0);
     assert.equal(provider.hits(), doneCalls);
     await section.getByRole("button", { name: "更新候选草案", exact: true }).click(); await expect(section).toContainText("已排队");
     const [updatedJob] = await boss.fetch(queue.name); assert.ok(updatedJob);

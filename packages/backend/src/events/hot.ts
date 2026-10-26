@@ -1,3 +1,4 @@
+import { serverModules } from "../modules.ts";
 // Hot ranking: attention over the last 48 hours from independent participants.
 // Each participant counts once per window (repeat collection does not add heat), decays with a
 // 24-hour half-life, and the source time (not collection time) places evidence in the window.
@@ -9,6 +10,7 @@ import { reporterHeatValue } from "./heat-v2.ts";
 
 /** One entry of a stored ranking; the public read layer (publication/hot.ts) re-checks it before showing it. */
 export interface HotEntry {
+  observationKey?: string;
   rank: number;
   storyId: number;
   storyPublicId: string;
@@ -191,6 +193,8 @@ function hotIndex(heat: number): number {
 
 /** Local calculation shared by scheduled snapshots and bounded permission revalidation. */
 export async function calculateHotRanking(at = new Date(), storyIds?: number[]) {
+  const adapter = serverModules().find(module => module.publication?.hot)?.publication?.hot;
+  if (adapter) return adapter.calculate(at, storyIds);
   const behind = behindSources(await sourceClocks(), at.getTime(), true);
   const rows = (await heatRows(at, behind, storyIds)).filter((r) => Number(r.participants) >= MIN_PARTICIPANTS && Number(r.editorial_participants) >= 1);
   rows.sort((a, b) => Number(b.heat) - Number(a.heat) || (b.latest_at?.getTime() ?? 0) - (a.latest_at?.getTime() ?? 0));
@@ -270,7 +274,7 @@ export async function computeHotRanking(at = new Date()): Promise<{ id: number; 
   const { entries, coverage } = await calculateHotRanking(at);
   const [row] = await sql<{ id: number }[]>`
     INSERT INTO hot_rankings (computed_at, rule_version, entries, evidence, published)
-    VALUES (${at}, ${HOT_RULE_VERSION}, ${sql.json(entries as never)},
+    VALUES (${at}, ${serverModules().find(module => module.publication?.hot)?.publication?.hot?.ruleVersion ?? HOT_RULE_VERSION}, ${sql.json(entries as never)},
             ${sql.json(coverage as never)}, true)
     RETURNING id`;
   // Keep a bounded history of rankings.
@@ -301,6 +305,7 @@ async function saveHeat(rows: HeatRow[], hour: Date): Promise<number> {
  * have fetched past it: values are deterministic from the signals, which carry the source's time.
  */
 export async function snapshotHeat(at = new Date()): Promise<{ stories: number; repaired: number }> {
+  if (serverModules().some(module=>module.publication?.hot)) return { stories: 0, repaired: 0 };
   const hour = new Date(Math.floor(at.getTime() / 3600000) * 3600000);
   const clocks = await sourceClocks();
   const rows = await heatRows(hour, behindSources(clocks, hour.getTime(), true));
@@ -323,6 +328,8 @@ export async function snapshotHeat(at = new Date()): Promise<{ stories: number; 
  * with like across the whole plot. No such participant: no line.
  */
 export async function heatSeries(storyId: number, now = new Date(), days = 7): Promise<Array<{ hour: Date; heat: number; participants: number }>> {
+  const adapter = serverModules().find(module => module.publication?.hot)?.publication?.hot;
+  if (adapter) return adapter.series(storyId, now, days);
   const hours = (await sql<{ hour: Date }[]>`
     SELECT hour FROM story_heat_hourly WHERE story_id = ${storyId} AND complete AND hour > ${new Date(now.getTime() - days * 86400_000)} AND hour <= ${now}
     ORDER BY hour`).map((h) => h.hour.getTime());

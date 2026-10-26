@@ -34,6 +34,9 @@ const { analyzeMaterialEvidence, materialAnalysisCachePolicy, prepareMaterialAna
 const { studioChatJson } = await import("../backend/studio-model.ts");
 const { columnSemanticsKey } = await import("../backend/column-matching.ts");
 const { sharedMaterialSchema } = await import("../backend/shared-material.ts");
+const { ReceiptBusyError, ReceiptUnknownError, BudgetExceededError } = await import("@aihot/backend/providers/receipts");
+const { QueueDeferred } = await import("@aihot/backend/jobs/queue");
+const deferred = (error: unknown) => error instanceof ReceiptBusyError || error instanceof ReceiptUnknownError || error instanceof BudgetExceededError || error instanceof QueueDeferred;
 
 type Candidate = { materialId: string; sourceKey: string; collectedAt: Date; existing: Record<string, unknown> | null };
 
@@ -79,9 +82,9 @@ async function extendExisting(candidate: Candidate, shared: Record<string, unkno
   const oldScope = shared.scope;
   const scope = ext.editorialScope ?? (oldScope === "direct" ? "direct_ai_film" : oldScope === "important_ai" ? "general_ai"
     : oldScope === "unrelated" ? "unrelated" : "uncertain");
-  // Scope defines the consistency flags; the model's separate booleans cannot contradict it.
-  const aiCentral = scope === "direct_ai_film" || scope === "general_ai";
-  const filmRelevant = scope === "direct_ai_film" || scope === "non_ai_film";
+  // Do not invent consistency flags from scope. Contradictory or missing evidence fails validation.
+  const aiCentral = ext.aiCentral ?? shared.aiCentral;
+  const filmRelevant = ext.filmRelevant ?? shared.filmRelevant;
   const dim = (value: z.infer<typeof v2Dim> | undefined) => ({ value: value?.value ?? null,
     reason: value?.reason ?? "模型未返回该维度", factIds: value?.factIds?.filter(index => index < facts.length) });
   const v2 = { I: dim(ext.v2.I), M: dim(ext.v2.M), D: dim(ext.v2.D), P: dim(ext.v2.P), E: dim(ext.v2.E), X: dim(ext.v2.X) };
@@ -152,7 +155,7 @@ try {
           await audit("system:editorial-v2-backfill", "studio.material.analysis.backfill", candidate.materialId, null, null,
             { receiptId, policy: materialAnalysisCachePolicy, mode }, { db });
         });
-        let saved = false, lastError = "";
+        let saved = false, lastError = "", blocked = false;
         const existingShared = (candidate.existing as { shared?: Record<string, unknown> } | null)?.shared;
         if (Array.isArray(existingShared?.facts) && existingShared.facts.length) {
           for (let attempt = 0; attempt < 2 && !saved; attempt++) {
@@ -166,11 +169,11 @@ try {
             } catch (error) {
               lastError = (error instanceof Error ? error.message : "unknown").replace(/\s+/g, " ").slice(0, 200);
               console.error(JSON.stringify({ materialId: candidate.materialId, status: "extension_failed", error: lastError }));
-              if (lastError.includes("in flight")) break;
+              if (deferred(error)) { blocked=true; break; }
             }
           }
         }
-        for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+        for (let attempt = 0; attempt < 2 && !saved && !blocked; attempt++) {
           try {
             const prepared = await prepareMaterialAnalysis(context);
             const output = await analyzeMaterialEvidence(context, `studio-backfill-v2:${candidate.materialId}`, prepared);
@@ -181,7 +184,7 @@ try {
             console.error(JSON.stringify({ materialId: candidate.materialId, status: "analyzed", receiptId: output.receiptId, attempt: attempt + 1 }));
           } catch (error) {
             lastError = (error instanceof Error ? error.message : "unknown").replace(/\s+/g, " ").slice(0, 200);
-            if (lastError.includes("in flight") || attempt === 1) break;
+            if (deferred(error) || attempt === 1) break;
           }
         }
         if (!saved) {

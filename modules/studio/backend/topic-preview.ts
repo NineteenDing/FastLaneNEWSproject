@@ -10,6 +10,8 @@ import { currentTopicBatch, currentTopicEvidence, currentWindow } from "./topic-
 import { currentColumns, topicAudience } from "./topic-columns.ts";
 import { topicPlan } from "./topic-plan.ts";
 import { backgroundWorkHasPriority } from "./background-priority.ts";
+import { materialAnalysisReadings } from "./material-analysis-state.ts";
+import { columnSemanticsKey } from "./column-matching.ts";
 import { modelWorkAllowed } from "./model-operations.ts";
 import { createModelAdmission } from "./model-admission.ts";
 import { analyzeMaterialEvidence, prepareMaterialAnalysis, materialAnalysisCachePolicy } from "./material-analysis.ts";
@@ -19,10 +21,11 @@ import { synthesizeTopicDirections, type TopicSynthesisMaterial } from "./topic-
 import { freezeSharedTopicSignals } from "./topic-signals.ts";
 import { currentFilterPolicy } from "./filter-settings.ts";
 import { rescoreCurrentDirections } from "./filter-scoring.ts";
-import type { CurrentTopicPreview, FilterPolicy, TopicBatchMaterial, TopicColumn } from "../contracts.ts";
+import type { CurrentTopicPreview, FilterPolicy, TopicBatchMaterial, TopicColumn, TopicMaterialAnalysis } from "../contracts.ts";
 
 type PreviewInput = { startsAt: string; endsAt: string; capturedAt: string; audience: string; columns: TopicColumn[];
-  materials: TopicBatchMaterial[]; materialCount: number; modelIdentity: string; sharedPolicy?: string; filterPolicy?: FilterPolicy };
+  materials: TopicBatchMaterial[]; materialCount: number; modelIdentity: string; sharedPolicy?: string; filterPolicy?: FilterPolicy;
+  analyses?: Record<string, TopicMaterialAnalysis> };
 type Input = PreviewInput & { previous?: { version: number; fingerprint: string; input: PreviewInput; result: NonNullable<CurrentTopicPreview["result"]>; generatedAt: string | null } };
 type Stored = { id: string; version: number; fingerprint: string; input: Input; state: Exclude<CurrentTopicPreview["state"], "not_generated">;
   result: CurrentTopicPreview["result"]; generated_at: Date | null; error: string | null; job_id: string | null; run_token: string };
@@ -45,7 +48,7 @@ export const topicPreviewQueue = defineQueue<Job>({ name: "studio.topic.preview"
   worker: { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2, groupConcurrency: 1 },
   admission: () => {
     const active = previewAdmission();
-    return { canStart: async db => await active.canStart(db) && await backgroundWorkHasPriority(db) && await active.canStart(db), stop: active.stop };
+    return { canStart: async db => await active.canStart(db) && await backgroundWorkHasPriority(db, "preview") && await active.canStart(db), stop: active.stop };
   },
   async run(jobs) { for (const job of jobs) await generate(job); },
 });
@@ -85,12 +88,34 @@ export async function topicPreviewMaterial(id: string, version: string, material
 /** Compare precisely the current window and rules without changing its ownership or paying for analysis. */
 async function capture(db: Tx, window: { startsAt: string; endsAt: string }, modelIdentity: string) {
   const columns = await currentColumns(db), all = await currentTopicEvidence(db, window);
-  const materials = all.filter(material => material.body.trim() && ["ok", "collected", "transcribed"].includes(material.bodyState));
+  const readings = await materialAnalysisReadings(db, all.map(material=>material.id), true), analyses: Record<string,TopicMaterialAnalysis> = {};
+  let materials = all.filter(material => {
+    const reading=readings.get(material.id), result=reading?.result;
+    if(result?.shared?.scope === "unrelated") return false;
+    if(reading?.state === "completed" && result && reading.classification?.state !== "pending"
+      && (!result.shared || result.columnSemanticsKey===columnSemanticsKey(columns)))
+      analyses[material.id]={materialId:material.id,state:"completed",...result,receiptId:reading.receiptId,error:null};
+    return material.body.trim() && ["ok", "collected", "transcribed"].includes(material.bodyState);
+  });
+  // A rolling draft uses already-understood qualified candidates. The formal cutoff still owns
+  // every material; this prevents a live preview from buying another analysis of the entire archive.
+  if(Object.values(analyses).some(analysis=>analysis.shared)) {
+    const signals=freezeSharedTopicSignals(materials.map(material=>({material,analysis:analyses[material.id]??null})),new Date().toISOString(),
+      undefined,undefined,(await currentFilterPolicy(db)).editorial);
+    const qualified=new Set(signals?.candidates.filter(candidate=>candidate.path!==null).map(candidate=>candidate.materialId));
+    let bytes=0;
+    materials=materials.filter(material=>qualified.has(material.id)).sort((a,b)=>b.collectedAt.localeCompare(a.collectedAt)).filter((material,index)=>{
+      const size=Buffer.byteLength(JSON.stringify([material,analyses[material.id]]),'utf8');
+      if(index>=60 || bytes+size>650000)return false;bytes+=size;return true;
+    });
+    const included=new Set(materials.map(material=>material.id));
+    for(const id of Object.keys(analyses))if(!included.has(id))delete analyses[id];
+  }
   const snapshot: Input = { startsAt: window.startsAt, endsAt: window.endsAt, capturedAt: new Date().toISOString(),
-    audience: topicAudience, columns, materials, materialCount: all.length, modelIdentity, sharedPolicy: materialAnalysisCachePolicy, filterPolicy: await currentFilterPolicy(db) };
+    audience: topicAudience, columns, materials, analyses, materialCount: all.length, modelIdentity, sharedPolicy: materialAnalysisCachePolicy, filterPolicy: await currentFilterPolicy(db) };
   const inputIssue = sizeIssue(snapshot);
   const keys = inputIssue ? [] : await Promise.all(materials.map(evidence => prepareMaterialAnalysis({ evidence, columns, audience: topicAudience, insightPolicy: materialInsightPolicy, sharedPolicy: snapshot.sharedPolicy }, modelIdentity)));
-  const fingerprint = inputIssue ? "preview-input-too-large" : sha256(stableJson({ startsAt: window.startsAt, endsAt: window.endsAt, columns, materialCount: all.length, keys: keys.map(item => item.key) }));
+  const fingerprint = inputIssue ? "preview-input-too-large" : sha256(stableJson({ startsAt: window.startsAt, endsAt: window.endsAt, columns, materialCount: all.length, keys: keys.map(item => item.key),analyses }));
   return { fingerprint, snapshot, inputIssue };
 }
 
@@ -164,12 +189,14 @@ async function generate(job: Job) {
       throw new PreviewStopped("本期候选窗口已截止，请查看正式批次或生成新一期草案");
     if (await materialAnalysisModelIdentity() !== input.modelIdentity)
       throw new PreviewStopped("模型配置已变化，原依据仍保留，请按最新材料更新候选草案");
-    if (!await backgroundWorkHasPriority()) throw new QueueDeferred("候选草案等待已确认稿件、正式选题或常规采集完成");
+    if (!await backgroundWorkHasPriority(sql, "preview")) throw new QueueDeferred("候选草案等待已确认稿件或正式选题完成");
   };
   try {
     const materials: TopicSynthesisMaterial[] = [];
     for (const evidence of input.materials) {
       await beforeCall();
+      const existing=input.analyses?.[evidence.id];
+      if(existing){materials.push({material:evidence,analysis:existing});continue;}
       const context = { evidence, audience: input.audience, columns: input.columns, insightPolicy: materialInsightPolicy, sharedPolicy: input.sharedPolicy };
       const analyzed = await analyzeMaterialEvidence(context, undefined, await prepareMaterialAnalysis(context, input.modelIdentity), beforeCall);
       materials.push({ material: evidence, analysis: { materialId: evidence.id, state: "completed", ...analyzed.result, receiptId: analyzed.receiptId, error: null } });

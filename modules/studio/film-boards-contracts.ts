@@ -24,6 +24,9 @@ export interface FilmBoardSnapshot {
   sourceUrl: string;
   requestedLimit: number;
   schemaVersion?: 2;
+  sourceRevision?: string;
+  etag?: string | null;
+  lastModified?: string | null;
   sourceIssueDate?: string | null;
   sourceTotal?: number | null;
   categories?: Array<{ key: string; labelOriginal: string; labelZh?: string | null; sourceCount?: number | null }>;
