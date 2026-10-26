@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_reference_analyses (id uuid PRIMARY KEY, input_hash text NOT NULL UNIQUE, input jsonb NOT NULL, state text NOT NULL DEFAULT 'queued', result jsonb, receipt_id bigint, job_id uuid, run_token uuid NOT NULL, error text, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());

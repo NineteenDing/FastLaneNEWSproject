@@ -1,0 +1,1 @@
+ALTER TABLE studio_topic_material_analyses DROP CONSTRAINT IF EXISTS studio_analysis_material_fk;

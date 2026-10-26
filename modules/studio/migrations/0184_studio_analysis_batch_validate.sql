@@ -1,0 +1,1 @@
+ALTER TABLE studio_topic_material_analyses VALIDATE CONSTRAINT studio_analysis_batch_fk;

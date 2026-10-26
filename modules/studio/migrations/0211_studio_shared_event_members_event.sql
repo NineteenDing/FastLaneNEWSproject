@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY IF NOT EXISTS studio_shared_event_members_event_idx ON studio_shared_event_members(event_id);

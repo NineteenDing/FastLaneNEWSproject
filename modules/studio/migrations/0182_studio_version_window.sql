@@ -1,0 +1,1 @@
+ALTER TABLE studio_topic_batches DROP CONSTRAINT IF EXISTS studio_topic_batches_starts_at_key;

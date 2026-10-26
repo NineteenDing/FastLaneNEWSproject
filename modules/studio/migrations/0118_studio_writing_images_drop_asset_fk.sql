@@ -1,0 +1,1 @@
+ALTER TABLE studio_writing_images DROP CONSTRAINT IF EXISTS studio_writing_images_image_id_fkey;

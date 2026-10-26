@@ -1,0 +1,14 @@
+{
+  "package": "faster-whisper",
+  "version": "1.2.1",
+  "python": "3.12.14",
+  "license": "MIT",
+  "model": {
+    "repository": "Zoont/faster-whisper-large-v3-turbo-int8-ct2",
+    "revision": "846f74797293e5f605d509a6ab5395a1f2f2874e",
+    "bytes": 814054531,
+    "sha256": "7482f978f9493b93b3d0bf68a148a1a62ca02547e8ee981358ff8ef2de8a9418",
+    "license": "MIT",
+    "label": "faster-whisper-large-v3-turbo@846f747/int8"
+  }
+}

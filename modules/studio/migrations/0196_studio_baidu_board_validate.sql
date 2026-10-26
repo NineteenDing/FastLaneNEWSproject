@@ -1,0 +1,1 @@
+ALTER TABLE studio_trend_boards VALIDATE CONSTRAINT studio_trend_boards_platform_v2_check;

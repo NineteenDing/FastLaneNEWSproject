@@ -1,0 +1,185 @@
+import "../../../tests/setup.ts";
+import assert from "node:assert/strict";
+import { after, test } from "node:test";
+import { closeDb } from "@aihot/backend/db";
+import { stopBoss } from "@aihot/backend/jobs/queue";
+import { sourceResourceFixture } from "./source-resource-fixture.ts";
+import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
+import { config } from "@aihot/backend/config";
+import { getBoss } from "@aihot/backend/jobs/queue";
+import { serverModules } from "@aihot/backend/modules";
+import { addDays, beijingAt, beijingDate } from "@aihot/contracts/time";
+
+const { app, headers } = await sourceResourceFixture();
+const previous = getGlobalDispatcher(), transport = new MockAgent(); transport.disableNetConnect(); setGlobalDispatcher(transport);
+after(async () => { setGlobalDispatcher(previous); await transport.close(); await app.close(); await stopBoss(); await closeDb(); });
+
+test("影视榜匿名读取真实空状态，独立入口与版本化采集范围设置，不凭空展示数据", async () => {
+  const response = await app.inject({ url: "/api/site/film-boards" }); assert.equal(response.statusCode, 200);
+  const boards = response.json().boards; assert.equal(boards.length, 8);
+  assert.equal(new Set(boards.map((board: { id: string }) => board.id)).size, 8);
+  assert.ok(boards.every((board: { id: string; items: unknown[]; snapshotAt: string | null; limit: number }) =>
+    !board.items.length && board.snapshotAt === null && board.limit === (board.id === "verticalcharts-52" ? 40 : 20)));
+  const green = boards.find((board: { id: string }) => board.id === "lvpaopao");
+  assert.equal(green.state, "not_connected"); assert.equal(green.name, "绿泡泡短剧 · 今日必看");
+  const domestic = await app.inject({ url: "/api/site/film-boards?region=domestic" }); assert.equal(domestic.json().boards.length, 7);
+  assert.equal((await app.inject({ url: "/api/site/film-boards?region=unknown" })).statusCode, 400);
+  assert.equal((await app.inject({ url: "/api/admin/studio/film-boards" })).statusCode, 401);
+  const url = "/api/admin/studio/film-boards/aitop100-short";
+  assert.equal((await app.inject({ method: "PUT", url, payload: { version: 0, enabled: false, limit: 20 } })).statusCode, 401);
+  const saved = await app.inject({ method: "PUT", url, headers, payload: { version: 0, enabled: false, limit: 20 } }); assert.equal(saved.statusCode, 200, saved.body);
+  assert.equal(saved.json().version, 1); assert.equal(saved.json().enabled, false); assert.equal(saved.json().limit, 20);
+  assert.equal((await app.inject({ method: "PUT", url, headers, payload: { version: 0, enabled: true, limit: 20 } })).statusCode, 409);
+  assert.equal((await app.inject({ method: "PUT", url, headers, payload: { version: 1, enabled: true, limit: 101 } })).statusCode, 400);
+  const current = (await app.inject({ url: "/api/admin/studio/film-boards", headers })).json().boards.find((board: { id: string }) => board.id === "aitop100-short");
+  assert.equal(current.version, 1); assert.equal(current.enabled, false); assert.equal(current.limit, 20); assert.deepEqual(current.items, []);
+});
+
+test("榜单采集保留官方顺序与原热度，失败仍读最后成功快照，页面读取不发请求", async () => {
+  config.allowPrivateNetworkFetch = true;
+  assert.equal((await app.inject({ method: "PUT", url: "/api/admin/studio/film-boards/aitop100-short", headers, payload: { version: 1, enabled: true, limit: 20 } })).statusCode, 200);
+  let requests = 0;
+  transport.get("https://www.aitop100.cn").intercept({ method: "GET", path: "/api/shortVideo/works/page?curPage=1&limit=20&onlyNoGroup=true&orderByPopularity=true" }).reply(() => {
+    requests++;
+    return requests === 1 ? { statusCode: 200, data: JSON.stringify({ code: 0, data: { list: [
+      { id: 11, worksName: "官方首位", totalPopularity: 20, workCover: "https://covers.example/11.png", views: 2 },
+      { id: 12, worksName: "官方次位", totalPopularity: 3000, workCover: "https://covers.example/12.png", views: 99 },
+    ] } }) } : { statusCode: 503, data: "temporary failure" };
+  }).persist();
+  const url = "/api/admin/studio/film-boards/aitop100-short/collect";
+  assert.equal((await app.inject({ method: "POST", url, payload: {} })).statusCode, 401);
+  let response = await app.inject({ method: "POST", url, headers, payload: {} }); assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json().queued, true); assert.equal((await app.inject({ method: "POST", url, headers, payload: {} })).json().queued, false);
+  const queue = serverModules().find(module => module.name === "studio")!.queues!.find(item => item.name === "studio.film.collect"); assert.ok(queue);
+  const boss = await getBoss(); let [job] = await boss.fetch(queue.name); assert.ok(job); await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
+  response = await app.inject({ url: "/api/site/film-boards?region=domestic" });
+  const board = response.json().boards.find((board: { id: string }) => board.id === "aitop100-short");
+  assert.equal(board.limit, 20);
+  assert.deepEqual(Object.keys(board.items[0]).sort(), ["id", "position", "title", "url", "author", "sourceSummary", "metrics"].sort());
+  assert.equal((await app.inject({ url: "/api/site/film-boards" })).body.includes("covers.example"), false);
+  assert.equal(board.state, "ready"); assert.deepEqual(board.items.map((item: { title: string }) => item.title), ["官方首位", "官方次位"]);
+  assert.equal(board.items[0].position, 1); assert.equal(board.items[0].metrics[0].name, "来源综合热度"); assert.equal(board.items[0].metrics[0].value, 20);
+  assert.equal(board.items[0].url, "https://www.aitop100.cn/artcenter/aivlogdetail/works/11.html"); assert.ok(board.snapshotAt);
+  await app.inject({ url: "/api/site/film-boards" }); assert.equal(requests, 1, "读页只读取已存快照");
+  assert.equal((await app.inject({ method: "POST", url, headers, payload: {} })).json().queued, true);
+  [job] = await boss.fetch(queue.name); assert.ok(job); await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
+  const failed = (await app.inject({ url: "/api/site/film-boards" })).json().boards.find((board: { id: string }) => board.id === "aitop100-short");
+  assert.equal(failed.state, "failed"); assert.deepEqual(failed.items, board.items); assert.equal(failed.snapshotAt, board.snapshotAt); assert.ok(failed.error);
+  assert.equal((await app.inject({ method: "POST", url: "/api/admin/studio/film-boards/lvpaopao/collect", headers, payload: {} })).statusCode, 409);
+});
+
+test("五类官方结构经原采集队列规范保存，分页有界且不把热度或集数包装成播放量", async () => {
+  const next = (value: unknown, links = "") => `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: value } })}</script>${links}`;
+  transport.get("https://www.aitop100.cn").intercept({ method: "GET", path: "/api/shortVideo/group/page?curPage=1&limit=20&orderByPopularity=true&queryPopularityDetail=true" })
+    .reply(200, JSON.stringify({ code: 0, data: { list: [{ id: 42, groupName: "AI合集", groupPopularity: 99 }] } }));
+  const reel = Array.from({ length: 30 }, (_, i) => ({ book_id: `reel-${i + 1}`, book_title: `TOP作品${i + 1}`, read_count: 30 - i }));
+  let reelRequests = 0;
+  for (let page = 1; page <= 3; page++) {
+    const links = reel.slice((page - 1) * 12, page * 12).map(row => `<a href="/movie/real-slug-${row.book_id}">详情</a>`).join("")
+      + (page < 3 ? `<a href="/shelf/top-short-movies-dramas-51000492/${page + 1}">下一页</a>` : "");
+    transport.get("https://www.reelshort.com").intercept({ method: "GET", path: "/shelf/top-short-movies-dramas-51000492" + (page === 1 ? "" : "/" + page) })
+      .reply(() => { reelRequests++; return { statusCode: 200, data: next({ list: reel }, links) }; });
+  }
+  let netRequests = 0;
+  for (let page = 1; page <= 2; page++) {
+    const rows = Array.from({ length: 20 }, (_, i) => ({ position: (page - 1) * 20 + i + 1,
+      item: { name: `热播作品${(page - 1) * 20 + i + 1}`, url: `/full-episodes/net-${(page - 1) * 20 + i + 1}`, numberOfEpisodes: 88 } }));
+    transport.get("https://netshort.com").intercept({ method: "GET", path: "/hotseries" + (page === 1 ? "" : "/page/" + page) })
+      .reply(() => { netRequests++; return { statusCode: 200, data: `<script type="application/ld+json">${JSON.stringify({ "@graph": [{ "@type": "ItemList", name: "Hot Series", itemListElement: rows }] })}</script>` }; });
+  }
+  const drama = Array.from({ length: 6 }, (_, i) => ({ bookId: `drama-${i}`, bookName: i === 0 ? "长标题".repeat(35) + "X".repeat(180) : `推荐${i + 1}`,
+    replacedBookName: `real-slug-${i}`, viewCount: 1000, viewCountDisplay: "1K" }));
+  transport.get("https://www.dramabox.com").intercept({ method: "GET", path: "/" }).reply(200, next({ smallData: [
+    { id: 1264, items: [{ bookId: "not-trending", bookName: "不要混入" }] }, { id: 1265, items: drama }] }));
+  for (const route of ["hot-drama", "hot-real-drama", "hot-comic-drama", "hot-ai-drama"]) for (let page = 1; page <= 2; page++) {
+    const routeKey = `rank_${route}/page`;
+    const rows = Array.from({ length: 20 }, (_, i) => ({ seriesId: String((page - 1) * 20 + i + 1), rank: (page - 1) * 20 + i + 1,
+      title: `${route}官网热播${(page - 1) * 20 + i + 1}`, href: `/detail?series_id=${(page - 1) * 20 + i + 1}`, heatText: "12万热度", scoreText: "评分9.0" }));
+    const content = { isSuccess: true, rankList: rows };
+    const initial = { loaderData: { [routeKey]: { updatedText: "10月24日已更新", content: page === 1 ? {} : content } }, note: '字符串内的 } 和 { 及引号"不能终止对象' };
+    const stream = page === 1 ? `<script data-fn-name="r" data-script-src="modern-run-router-data-fn" data-fn-args="${JSON.stringify([routeKey, "content", content]).replaceAll('"', "&quot;")}"></script>` : "";
+    transport.get("https://hongguoduanju.com").intercept({ method: "GET", path: `/rank/${route}` + (page === 1 ? "" : "?page=2") })
+      .reply(200, `<script>_ROUTER_DATA = ${JSON.stringify(initial)}; function helper(){ throw Error('不能执行'); }</script>${stream}`);
+  }
+  const queue = serverModules().find(module => module.name === "studio")!.queues!.find(item => item.name === "studio.film.collect")!, boss = await getBoss();
+  for (const id of ["aitop100-drama", "reelshort", "netshort", "dramabox", "hongguo-web", "hongguo-real", "hongguo-comic", "hongguo-ai"]) {
+    const response = await app.inject({ method: "POST", url: `/api/admin/studio/film-boards/${id}/collect`, headers, payload: {} });
+    assert.equal(response.statusCode, 200, response.body); assert.equal(response.json().queued, true);
+    const [job] = await boss.fetch(queue.name); assert.ok(job); await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
+  }
+  const boards = (await app.inject({ url: "/api/admin/studio/film-boards", headers })).json().boards;
+  for (const [id, count] of [["aitop100-drama", 1], ["reelshort", 20], ["netshort", 20], ["dramabox", 6], ["hongguo-web", 20], ["hongguo-real", 20], ["hongguo-comic", 20], ["hongguo-ai", 20]] as const) {
+    const board = boards.find((board: { id: string }) => board.id === id); assert.equal(board.state, "ready", id); assert.equal(board.items.length, count, id);
+    assert.ok(board.items.every((item: { position: number }, index: number) => item.position === index + 1));
+  }
+  assert.equal(reelRequests, 2); assert.equal(netRequests, 1);
+  assert.deepEqual(boards.find((board: { id: string }) => board.id === "netshort").items[0].metrics, []);
+  const web = boards.find((board: { id: string }) => board.id === "hongguo-web");
+  for (const [id, route] of [["hongguo-real", "hot-real-drama"], ["hongguo-comic", "hot-comic-drama"], ["hongguo-ai", "hot-ai-drama"]]) {
+    const category = boards.find((b: { id: string }) => b.id === id);
+    assert.equal(category.group.id, "hongguo"); assert.ok(category.items[0].title.startsWith(route));
+    assert.ok(category.sourceUrl.endsWith(route));
+  }
+  assert.equal(web.sourceUpdatedText, "10月24日已更新"); assert.equal(web.items[0].metrics[0].text, "12万热度"); assert.equal(web.items[0].metrics[0].value, null);
+  assert.equal(boards.some((board: { id: string }) => board.id === "hongguo-app"), false);
+  assert.equal(boards.find((board: { id: string }) => board.id === "dramabox").ordering, "recommendation");
+});
+
+test("香港07点才排每日采集且不重复，停用改版后旧任务不能请求或覆盖最后成功结果", async t => {
+  const now = beijingAt(addDays(beijingDate(new Date()), 1), "07:00");
+  t.mock.timers.enable({ apis: ["Date"], now: now.getTime() - 60000 });
+  const schedule = serverModules().find(module => module.name === "studio")!.schedules!.find(item => item.name === "studio.film.schedule"); assert.ok(schedule);
+  assert.equal((await schedule.run() as { queued: number }).queued, 0);
+  t.mock.timers.setTime(now.getTime()); assert.equal((await schedule.run() as { queued: number }).queued, 6);
+  assert.equal((await schedule.run() as { queued: number }).queued, 0);
+  const queue = serverModules().find(module => module.name === "studio")!.queues!.find(item => item.name === "studio.film.collect")!, boss = await getBoss();
+  const [job] = await boss.fetch(queue.name); assert.ok(job);
+  assert.equal((job.data as { id: string }).id, "aitop100-short");
+  const before = (await app.inject({ url: "/api/site/film-boards" })).json().boards.find((board: { id: string }) => board.id === "aitop100-short");
+  assert.equal((await app.inject({ method: "PUT", url: "/api/admin/studio/film-boards/aitop100-short", headers, payload: { version: 2, enabled: false, limit: 20 } })).statusCode, 200);
+  await queue.run([job.data] as never[]); await boss.complete(queue.name, job.id);
+  const after = (await app.inject({ url: "/api/site/film-boards" })).json().boards.find((board: { id: string }) => board.id === "aitop100-short");
+  assert.equal(after.state, "paused"); assert.equal(after.snapshotAt, before.snapshotAt); assert.deepEqual(after.items, before.items);
+});
+
+test("国内外影视榜真实网页展示原指标、实际范围与未接通入口，桌面窄屏可导航且长题不溢出", async () => {
+  const { chromium, expect } = await import("@playwright/test"), { startWebServer } = await import("../../../apps/web/tests/web-server.ts"), { mkdir } = await import("node:fs/promises");
+  await mkdir(".impeccable/review", { recursive: true }); transport.enableNetConnect(/^(127\.0\.0\.1|localhost)(:|$)/);
+  const web = await startWebServer(app.server), browser = await chromium.launch(), page = await browser.newPage(), faults: string[] = [];
+  page.on("pageerror", error => faults.push(error.message));
+  try {
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      let response = await page.goto(web.origin + "/film/domestic?board=hongguo-web"); assert.equal(response?.status(), 200);
+      await expect(page.getByRole("heading", { name: "红果热播榜", exact: true })).toBeVisible();
+      await expect(page.getByText("仅供分享学习使用，", { exact: false })).toBeVisible();
+      await expect(page.getByRole("list", { name: "作品列表" }).locator("img")).toHaveCount(0);
+      await expect(page.getByRole("list", { name: "作品列表" }).getByRole("listitem")).toHaveCount(20);
+      await expect(page.getByText("热度：12万热度").first()).toBeVisible();
+      assert.equal(await page.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
+      await expect(page.getByRole("navigation", { name: "选择影视榜单" }).getByRole("link")).toHaveCount(3);
+      for (const category of ["真人剧", "漫剧", "AI剧", "总热播"]) {
+        await page.getByRole("navigation", { name: "红果热播榜分类" }).getByRole("link", { name: category, exact: true }).click();
+        await expect(page.getByRole("navigation", { name: "红果热播榜分类" }).getByRole("link", { name: category, exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(page.getByRole("list", { name: "作品列表" }).getByRole("listitem")).toHaveCount(20);
+      }
+      await page.getByRole("link", { name: "AI TOP100", exact: true }).click();
+      await expect(page.getByRole("navigation", { name: "AI TOP100分类" }).getByRole("link")).toHaveCount(2);
+      await page.getByRole("link", { name: "AI短剧榜", exact: true }).click();
+      await expect(page.getByRole("link", { name: "AI合集", exact: true })).toBeVisible();
+      await page.getByRole("link", { name: "红果热播榜", exact: true }).click();
+      await page.screenshot({ path: `.impeccable/review/phase2-film-domestic-${width}.png` });
+      await page.getByRole("link", { name: "绿泡泡短剧 · 今日必看", exact: true }).click();
+      await expect(page.getByText("暂未接入榜单数据，请等待后续配置。", { exact: true })).toBeVisible();
+      await expect(page.getByRole("list", { name: "作品列表" })).toHaveCount(0);
+      response = await page.goto(web.origin + "/film/overseas?board=dramabox"); assert.equal(response?.status(), 200);
+      await expect(page.getByRole("list", { name: "作品列表" }).getByRole("listitem")).toHaveCount(6);
+      await expect(page.getByRole("link", { name: "官方完整榜单请点击直达原站", exact: true })).toBeVisible();
+      assert.equal(await page.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
+      await page.screenshot({ path: `.impeccable/review/phase2-film-overseas-${width}.png` });
+      await page.getByRole("link", { name: "PineDrama", exact: true }).click();
+      await expect(page.getByText("暂未接入榜单数据，请等待后续配置。", { exact: true })).toBeVisible();
+    }
+    assert.deepEqual(faults, []);
+  } finally { await browser.close(); await web.stop(); }
+});

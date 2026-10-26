@@ -1,0 +1,33 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+.cache/
+.DS_Store
+.data/
+
+# Web production build
+apps/web/build/
+apps/web/.react-router/
+
+# Font package unpacked to regenerate the report nameplates (docs/customize.md)
+package/
+fontsource-noto-sans-sc-*.tgz
+
+# Private local runtime, credentials, data and acceptance artifacts
+.local/
+secrets/
+runtime/
+artifacts/
+playwright-report/
+test-results/
+.impeccable/review/
+*.dump
+*.log
+*.key
+*.pem
+*.pfx
+/FastLaneNEWSproject/
+/FastLaneNEWSproject*.zip
+/FastLaneNEWSproject*.sha256

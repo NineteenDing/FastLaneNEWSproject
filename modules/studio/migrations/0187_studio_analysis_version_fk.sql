@@ -1,0 +1,1 @@
+ALTER TABLE studio_topic_material_analyses DROP CONSTRAINT IF EXISTS studio_topic_material_analyses_batch_id_material_id_fkey;

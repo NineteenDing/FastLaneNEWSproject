@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_film_boards (id text PRIMARY KEY, version integer NOT NULL DEFAULT 0, definition jsonb NOT NULL, snapshot jsonb, state text NOT NULL DEFAULT 'pending', error_code text, checked_at timestamptz, run_token uuid, job_id uuid, started_at timestamptz, updated_at timestamptz NOT NULL DEFAULT now());

@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/NanmiCoder/MediaCrawler",
+  "commit": "8f583999006d5b692272c608440e193ca282e73b",
+  "python": "3.12.14",
+  "lockSha256": "16034a88f3981a63f9667b202e348372b4f1571cbd5aeb03530c7027622d22d6",
+  "zhihuSignSha256": "9753572dc21148975600ca8083e92245e69130cd11414a3e3089013b3aaee3f1",
+  "douyinSignSha256": "ff5cb3133e2717523ffb3f96679e3f5d23bd31a999411ea604cff9a51da9e26e",
+  "kuaishouHelpSha256": "888817127d7cf70045ac407ae1638526599aaf949001d72a343ad04125212e3d"
+}

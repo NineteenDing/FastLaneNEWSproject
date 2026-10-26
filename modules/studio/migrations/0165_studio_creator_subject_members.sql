@@ -1,0 +1,1 @@
+CREATE INDEX CONCURRENTLY IF NOT EXISTS studio_creator_subject_members ON studio_creator_subject_accounts(subject_id);

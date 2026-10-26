@@ -1,0 +1,4 @@
+{
+  "extends": "../tsconfig.base.json",
+  "include": ["studio-local.ts", "studio-runtime.ts", "local-service.ts", "collect.ts"]
+}

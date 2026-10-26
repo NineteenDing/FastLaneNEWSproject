@@ -1,0 +1,22 @@
+{
+  "name": "@aihot/studio",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server": "./server.ts",
+    "./contracts": "./contracts.ts",
+    "./module": "./module.ts",
+    "./web": "./web.tsx"
+  },
+  "dependencies": {
+    "@aihot/backend": "*",
+    "@aihot/contracts": "*",
+    "cheerio": "1.2.0",
+    "fflate": "0.7.5",
+    "marked": "18.0.14",
+    "playwright-core": "1.61.1",
+    "rotating-file-stream": "3.2.10",
+    "sharp": "0.35.5",
+    "zod": "4.6.5"
+  }
+}

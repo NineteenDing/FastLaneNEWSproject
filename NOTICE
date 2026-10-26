@@ -1,0 +1,29 @@
+AIHOT
+Copyright (c) 2026 数字生命卡兹克. The code is licensed under the MIT License (LICENSE).
+
+The name "AIHOT" and the AIHOT logo are not licensed under the MIT License. Please use your own name
+and logo for your site.
+
+This repository also contains third-party material under its own terms:
+
+- assets/og-fonts/: Noto Sans SC, SIL Open Font License 1.1 (assets/og-fonts/LICENSE).
+- modules/studio/backend/topic-scoring.ts: adapted from fxbin/TopicEye scoring_engine.py and
+  scoring_caliber.py, commit 70e3a86f987e7ab9e4b632c9a4bc63d64f4ad963, Copyright 2026 fxbin,
+  Apache License 2.0. See modules/studio/vendor/topiceye/LICENSE and NOTICE.md.
+- modules/studio/backend/creator-links.ts: creator URL patterns adapted from NanmiCoder/MediaCrawler,
+  commit 8f583999006d5b692272c608440e193ca282e73b, Copyright (c) 2025 relakkes@gmail.com,
+  NON-COMMERCIAL LEARNING LICENSE 1.1. See modules/studio/vendor/mediacrawler/LICENSE and NOTICE.md.
+
+- modules/studio/backend/topic-directions.ts: prompt workflow adapted from AI Topic Scout/SKILL.md,
+  commit 44def0302aff5784fd8e7121411f5940ba9d271f, Copyright (c) 2026 Jingyi Wu, MIT.
+  See modules/studio/vendor/ai-topic-scout/LICENSE and NOTICE.md for attribution and changes.
+- modules/studio/vendor/humanizer-zh/SKILL.md: Chinese editing rules by op7418/Humanizer-zh,
+  commit f4518a8eab97b8bfebc66a89d34320a89bef6930, Copyright (c) 2026 歸藏, MIT.
+  The server reads versioned rule text, without executing Skill tools or scripts; see its LICENSE and NOTICE.md.
+
+The demo sources in industry/sources.json are public feeds of their publishers. Their content belongs
+to them; by default the site shows only a summary and a link to the original.
+
+- modules/studio/backend/trend-reader.ts: adapted from newsnext/newsnow six platform sources,
+  commit 0560c993b226cd2fd07d8a79875d50551f52c584, Copyright (c) 2024 ourongxing, MIT.
+  See modules/studio/vendor/newsnow/LICENSE and NOTICE.md for attribution and changes.

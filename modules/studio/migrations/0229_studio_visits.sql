@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_visits (id uuid PRIMARY KEY, visitor_id uuid NOT NULL, session_id uuid NOT NULL, path text NOT NULL, started_at timestamptz NOT NULL, updated_at timestamptz NOT NULL, active_ms bigint NOT NULL DEFAULT 0);

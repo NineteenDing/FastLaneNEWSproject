@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_column_matching_contexts (key text PRIMARY KEY, base_cache_key text NOT NULL REFERENCES studio_material_analysis_cache(key), semantic_columns jsonb NOT NULL, created_at timestamptz NOT NULL DEFAULT now());

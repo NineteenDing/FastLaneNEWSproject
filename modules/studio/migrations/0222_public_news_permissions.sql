@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_public_news (article_id text PRIMARY KEY REFERENCES articles(id), source_key text NOT NULL, decision jsonb NOT NULL, policy_version integer NOT NULL, semantics_key text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now());

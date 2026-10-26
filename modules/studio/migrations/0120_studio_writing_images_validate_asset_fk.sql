@@ -1,0 +1,1 @@
+ALTER TABLE studio_writing_images VALIDATE CONSTRAINT studio_writing_images_asset_fk;

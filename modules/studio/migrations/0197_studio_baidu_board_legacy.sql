@@ -1,0 +1,1 @@
+ALTER TABLE studio_trend_boards DROP CONSTRAINT IF EXISTS studio_trend_boards_platform_check;

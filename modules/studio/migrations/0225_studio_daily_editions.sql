@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_daily_editions (day text PRIMARY KEY, input jsonb NOT NULL, state text NOT NULL DEFAULT 'pending', result jsonb, last_error text, job_id uuid, run_token uuid NOT NULL, attempt integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now());

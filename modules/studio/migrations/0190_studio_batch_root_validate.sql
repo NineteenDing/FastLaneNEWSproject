@@ -1,0 +1,1 @@
+ALTER TABLE studio_topic_batches VALIDATE CONSTRAINT studio_batch_root_fk;

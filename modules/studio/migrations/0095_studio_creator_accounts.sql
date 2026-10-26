@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS studio_creator_accounts (
+  id uuid PRIMARY KEY,
+  platform text NOT NULL CHECK (platform IN ('xhs', 'douyin', 'kuaishou', 'bilibili', 'weibo', 'tieba', 'zhihu')),
+  locator text NOT NULL CHECK (length(locator) BETWEEN 1 AND 200),
+  homepage text NOT NULL,
+  collector_context jsonb NOT NULL DEFAULT '{}',
+  name text,
+  description text,
+  follower_count bigint CHECK (follower_count BETWEEN 0 AND 9007199254740991),
+  work_count bigint CHECK (work_count BETWEEN 0 AND 9007199254740991),
+  latest_published_at timestamptz,
+  last_checked_at timestamptz,
+  profile_state text NOT NULL DEFAULT 'pending' CHECK (profile_state IN ('pending', 'ready', 'failed')),
+  enabled boolean NOT NULL DEFAULT true,
+  archived boolean NOT NULL DEFAULT false,
+  added_at timestamptz NOT NULL DEFAULT now(),
+  version integer NOT NULL DEFAULT 1 CHECK (version > 0),
+  UNIQUE (platform, locator),
+  CHECK (NOT archived OR NOT enabled)
+);
