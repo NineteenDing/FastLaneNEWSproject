@@ -7,6 +7,17 @@ const dimension = z.object({ value: z.number().min(0).max(100).nullable(), reaso
 const factIds = z.array(z.number().int().nonnegative()).max(20);
 const v2Dimension = z.object({ value: z.number().min(0).max(100).nullable(), reason: text, factIds: factIds.optional() }).strict();
 
+/** A model must not invent a year from a month/day-only phrase. Unsupported precision stays unknown. */
+function supportedTimeQuote(time: { at: string; precision: "instant" | "day"; quote: string }) {
+  const [year, month, day] = time.at.slice(0,10).split("-").map(Number);
+  const months = ["January|Jan", "February|Feb", "March|Mar", "April|Apr", "May", "June|Jun", "July|Jul", "August|Aug", "September|Sep|Sept", "October|Oct", "November|Nov", "December|Dec"];
+  const monthName = `(?:${months[month!-1]})\\.?`;
+  const hasDate = time.quote.includes(time.at.slice(0,10)) || new RegExp(`${year}\\s*年\\s*0?${month}\\s*月\\s*0?${day}\\s*日`).test(time.quote)
+    || new RegExp(`\\b${monthName}\\s+0?${day}(?:st|nd|rd|th)?(?:,\\s*|\\s+)${year}\\b`, "i").test(time.quote)
+    || new RegExp(`\\b0?${day}\\s+${monthName}\\s+${year}\\b`, "i").test(time.quote);
+  return hasDate && (time.precision === "instant" ? time.quote.includes(time.at.slice(11,16)) : time.at.slice(11,19) === "00:00:00");
+}
+
 /** Factual understanding is shared; observed heat, age and editable weights are computed later. */
 export const sharedMaterialSchema = z.object({
   scope: z.enum(["direct", "important_ai", "unrelated", "uncertain"]), scopeReason: text, scopeQuotes: z.array(z.string().trim().min(1).max(600)).max(8),
@@ -51,7 +62,8 @@ export const sharedMaterialSchema = z.object({
     ctx.addIssue({ code: "custom", message: "majorEvent.evidenceFactIds 必须指向 shared.facts", path: ["majorEvent", "evidenceFactIds"] });
   if (data.memeMetrics?.evidenceFactIds.some(index => !validFact(index)))
     ctx.addIssue({ code: "custom", message: "memeMetrics.evidenceFactIds 必须指向 shared.facts", path: ["memeMetrics", "evidenceFactIds"] });
-});
+}).transform(data => data.event?.time && !supportedTimeQuote(data.event.time)
+  ? { ...data, event: { ...data.event, time: null } } : data);
 export type SharedMaterial = z.infer<typeof sharedMaterialSchema>;
 
 export function verifiedMemeEvidence(shared: SharedMaterial | null | undefined) {
@@ -86,9 +98,7 @@ export function validSharedMaterial(data: SharedMaterial, evidence: TopicBatchMa
     }
   }
   if (time) {
-    const [year, month, day] = time.at.slice(0, 10).split("-").map(Number);
-    const hasDate = time.quote.includes(time.at.slice(0, 10)) || new RegExp(`${year}年0?${month}月0?${day}日`).test(time.quote);
-    if (!hasDate || (time.precision === "instant" ? !time.quote.includes(time.at.slice(11, 16)) : time.at.slice(11, 19) !== "00:00:00")) return false;
+    if (!supportedTimeQuote(time)) return false;
   }
   return allQuotes.every(quote => evidence.body.includes(quote))
     && new Set(data.columnMatches.map(match => match.columnId)).size === data.columnMatches.length

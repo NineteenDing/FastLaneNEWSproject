@@ -18,6 +18,7 @@ const previous = getGlobalDispatcher(), transport = new MockAgent(); transport.d
 setGlobalDispatcher(transport); config.allowPrivateNetworkFetch = true;
 let calls = 0;
 let important = false;
+let partialTime = false;
 let reuseEvent = false;
 let memeMode: "important_ai" | "unrelated" | null = null;
 let eventIdentitySuffix = "";
@@ -37,6 +38,7 @@ transport.get("https://api.deepseek.com").intercept({ method: "POST", path: "/v1
       publicDimensions: { practical: { value: 10, reason: "尚无直接工作流" }, interest: { value: 80, reason: "重大能力变化" }, substance: { value: 85, reason: "有明确发布事实" } },
       columnMatches: [{ columnId: "news", value: 90, reason: "需分析后续产业影响" }],
       event: { relation: reuseEvent && input.eventCandidates?.length ? "same" : "new", candidateId: reuseEvent ? input.eventCandidates?.[0]?.id ?? null : null,
+        ...(partialTime ? {time:{at:"2026-10-23T00:00:00+08:00",precision:"day",quote:"after its October 23 debut"}} : {}),
         label: "星幕通用模型V2发布", identity: (memeMode ? "具体模仿案例:" + memeMode : reuseEvent ? "另一种措辞的星幕V2发布报道" : "星幕|V2|正式发布|2026-10-18") + eventIdentitySuffix, quotes: [quote] },
       reportingKind: "original", memeEvidence: memeMode ? [{ text: "正文列明多个实际模仿案例", quotes: [quote] }] : [],
     } } : {}),
@@ -253,4 +255,13 @@ test("付费响应后缓存提交失败，事件候选池变化也沿原请求�
     assert.equal((await app.inject({ method: "POST", url, headers, payload: {} })).json().queued, true); await drain();
     assert.equal((await app.inject({ url, headers })).json().state, "completed"); assert.equal(calls, before + 2);
   } finally { important = false; eventIdentitySuffix = ""; }
+});
+
+
+test("没有年份的正文日期降为时间未知，保留已核实的新闻事实且不阻断共享分析",async t=>{
+ t.mock.timers.enable({apis:["Date"],now:new Date("2026-10-26T12:00:00Z")});await resources.warm();important=true;partialTime=true;
+ try{const saved=await upsertMaterial({sourceId:"shared-first",title:"AI影视作品的发行报道",url:"https://shared-first.example/partial-event-date",via:"import",publishedAt:new Date("2026-10-26T10:00:00Z"),bodyText:"The AI film received audience reactions after its October 23 debut. The report does not state the year of the debut.",bodyStatus:"ok"});
+ await scheduleTopicMaterialAnalyses();await drain();const reading=(await app.inject({url:`/api/admin/studio/intelligence/news:${saved.articleId}/analysis`,headers})).json();
+ assert.equal(reading.state,"completed");assert.equal(reading.result.shared.event.time,null);assert.equal(reading.result.shared.facts.length,1);
+ }finally{important=false;partialTime=false;}
 });
