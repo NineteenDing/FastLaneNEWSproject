@@ -56,6 +56,8 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
     events.push({ id, label: related[0]!.analysis!.shared!.event?.label ?? related[0]!.material.title,
       materialIds: related.map(row => row.material.id), ...breakout,
       time:resolvedTime,timeConflict,
+      ...(!resolvedTime&&!timeConflict ? {publicationFallbackAt:related.filter(row=>evidenceAvailable(row)&&row.analysis?.shared?.reportingKind!=="repost"&&row.material.publishedAt)
+        .map(row=>row.material.publishedAt!).sort()[0]} : {}),
       ...(heatPolicy ? { heat: eventHeat(rows, asOf, heatPolicy),
         allReposts: related.every(row => row.analysis!.shared!.reportingKind === "repost") } : {}),
       heatObserved: heatV2.observed, heatFresh: heatV2.freshObserved, heatState: heatV2.state, heatDecision: heatV2.decisionValue,

@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS studio_trend_event_links (
   signal_id uuid NOT NULL REFERENCES studio_trend_signals(id) ON DELETE CASCADE,
+  signal_context_key text NOT NULL,
   event_id uuid NOT NULL REFERENCES studio_shared_events(id),
   material_id text NOT NULL,
   source_key text NOT NULL,

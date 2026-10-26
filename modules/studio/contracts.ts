@@ -402,7 +402,7 @@ export interface EventObservation {
 }
 export interface SharedTopicSignals {
   policy: "shared-topic-v1" | "shared-topic-v2"; asOf: string; rules: EventPropagationRules;
-  events: Array<EventObservation & { id: string; label: string; materialIds: string[]; heat?: EventHeat; time?: EventTime | null; timeConflict?: boolean; allReposts?: boolean;
+  events: Array<EventObservation & { id: string; label: string; materialIds: string[]; heat?: EventHeat; time?: EventTime | null; timeConflict?: boolean; publicationFallbackAt?: string; allReposts?: boolean;
     heatObserved?: number | null; heatFresh?: number | null; heatState?: "complete" | "partial" | "unknown"; heatDecision?: number; heatCompensated?: boolean;
     interval?: [number, number]; policyVersion?: string }>;
   candidates: Array<{ materialId: string; eventId: string; scope: "direct" | "important_ai" | "unrelated" | "uncertain"; editorialScope?: EditorialScopeV2;

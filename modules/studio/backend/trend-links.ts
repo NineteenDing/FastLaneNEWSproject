@@ -3,13 +3,13 @@ import { sameTrendHeadline, type PlatformAttentionRow } from "./platform-attenti
 
 /** Strong headline identity only; ambiguous candidates wait rather than boosting several events. */
 export async function refreshTrendEventLinks() {
-  const direct = await sql`INSERT INTO studio_trend_event_links(signal_id,event_id,material_id,source_key,method)
-    SELECT n.signal_id,m.event_id,m.material_id,m.source_key,'collected_material'
+  const direct = await sql`INSERT INTO studio_trend_event_links(signal_id,signal_context_key,event_id,material_id,source_key,method)
+    SELECT n.signal_id,n.relevance_key,m.event_id,m.material_id,m.source_key,'collected_material'
     FROM studio_trend_news n JOIN studio_trend_signals signal ON signal.id=n.signal_id AND signal.relevance_key=n.relevance_key
     JOIN studio_history_index h ON h.article_id=n.article_id
     JOIN studio_shared_event_members m ON m.material_id=h.material_id AND m.source_key=h.knowledge->>'sourceKey'
-    WHERE n.state='ready' ON CONFLICT DO NOTHING RETURNING signal_id`;
-  const signals = await sql<{ id: string; title: string }[]>`SELECT s.id, s.title FROM studio_trend_signals s
+    WHERE n.state='ready' ON CONFLICT(signal_id,event_id,material_id,source_key) DO UPDATE SET signal_context_key=EXCLUDED.signal_context_key,linked_at=EXCLUDED.linked_at,method=EXCLUDED.method WHERE studio_trend_event_links.signal_context_key IS DISTINCT FROM EXCLUDED.signal_context_key RETURNING signal_id`;
+  const signals = await sql<{ id: string; title: string; key:string }[]>`SELECT s.id, s.title,s.relevance_key AS key FROM studio_trend_signals s
     JOIN studio_trend_relevance r ON r.signal_id = s.id AND r.context_key = s.relevance_key
     JOIN studio_trend_boards b ON b.platform = s.platform JOIN sources source ON source.id = b.source_id
     WHERE r.state = 'completed' AND r.result->>'decision' = 'relevant' AND source.enabled AND NOT source.archived
@@ -28,8 +28,8 @@ export async function refreshTrendEventLinks() {
   for (const signal of signals) {
     const matches = members.filter(member => sameTrendHeadline(signal.title, member.title) || !!member.titleZh && sameTrendHeadline(signal.title, member.titleZh));
     if (new Set(matches.map(row => row.eventId)).size !== 1) continue;
-    for (const member of matches) linked += (await sql`INSERT INTO studio_trend_event_links (signal_id,event_id,material_id,source_key,method)
-      VALUES (${signal.id},${member.eventId},${member.materialId},${member.sourceKey},'exact_headline') ON CONFLICT DO NOTHING RETURNING signal_id`).length;
+    for (const member of matches) linked += (await sql`INSERT INTO studio_trend_event_links (signal_id,signal_context_key,event_id,material_id,source_key,method)
+      VALUES (${signal.id},${signal.key},${member.eventId},${member.materialId},${member.sourceKey},'exact_headline') ON CONFLICT(signal_id,event_id,material_id,source_key) DO UPDATE SET signal_context_key=EXCLUDED.signal_context_key,linked_at=EXCLUDED.linked_at WHERE studio_trend_event_links.signal_context_key IS DISTINCT FROM EXCLUDED.signal_context_key RETURNING signal_id`).length;
   }
   return { linked };
 }
@@ -41,7 +41,8 @@ export async function linkedTrendObservations(db: Db, eventIds: string[], asOf: 
   const rows = await db<Array<PlatformAttentionRow & { eventId: string }>>`SELECT l.event_id AS "eventId", s.platform,
     s.platform AS board, observation.rank, observation.observed_at::text AS "observedAt",
     observation.observed_at >= latest.at AS active
-    FROM studio_trend_event_links l JOIN studio_trend_signals s ON s.id = l.signal_id
+    FROM studio_trend_event_links l JOIN studio_trend_signals s ON s.id = l.signal_id AND s.relevance_key=l.signal_context_key
+    JOIN studio_trend_relevance relevance ON relevance.signal_id=s.id AND relevance.context_key=s.relevance_key AND relevance.state='completed' AND relevance.result->>'decision'='relevant'
     JOIN studio_trend_boards board ON board.platform = s.platform JOIN sources source ON source.id = board.source_id
     JOIN studio_history_index h ON h.material_id = l.material_id AND h.knowledge->>'sourceKey' = l.source_key
     JOIN articles a ON a.id = h.article_id JOIN sources material_source ON material_source.id = a.source_id

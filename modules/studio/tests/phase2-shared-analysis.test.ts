@@ -137,7 +137,7 @@ test("同一事件的十个独立报道主体触发出圈，机构多账号和�
     assert.equal(calls, before);
     const policy = (await app.inject({ url: "/api/admin/studio/filter-settings", headers })).json().policy;
     const ruleChange = await app.inject({ method: "PUT", url: "/api/admin/studio/filter-settings", headers,
-      payload: { ...policy, propagation: { ...policy.propagation, independentReports: 11 } } });
+      payload: { ...policy, editorial:{...policy.editorial,breakout:{...policy.editorial.breakout,reports:11}} } });
     assert.equal(ruleChange.statusCode, 200, ruleChange.body);
     assert.equal((await app.inject({ url, headers })).json().breakout.triggered, false, "数字门槛立即作用于当前观察，不重跑基础分析");
     assert.equal(calls, before);
@@ -200,7 +200,7 @@ test("百万播放按同平台三作者的最新作品指标统计，旧累计�
   } finally { important = false; }
 });
 
-test("具体模仿证据可触发相关事件出圈，但无关娱乐即使有传播证据也不能入候选", async t => {
+test("少量模仿案例不是定量出圈，无关娱乐也不能入候选", async t => {
   t.mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-25T12:00:00Z") }); await resources.warm(); important = true;
   try {
     for (const scope of ["important_ai", "unrelated"] as const) {
@@ -210,8 +210,8 @@ test("具体模仿证据可触发相关事件出圈，但无关娱乐即使有�
         bodyText: scope === "important_ai" ? "星幕V2角色转场在甲、乙、丙三位创作者的作品中出现了不同模仿案例。" : "某娱乐舞蹈在甲、乙、丙三位创作者中被模仿，与AI和影视制作没有关联。", bodyStatus: "ok" });
       await scheduleTopicMaterialAnalyses(); await drain();
       const event = (await app.inject({ url: `/api/admin/studio/intelligence/news:${saved.articleId}/event`, headers })).json();
-      assert.equal(event.breakout.triggered, scope === "important_ai");
-      assert.equal(event.breakout.candidate, scope === "important_ai");
+      assert.equal(event.breakout.triggered, false);
+      assert.equal(event.breakout.candidate, false);
     }
   } finally { important = false; memeMode = null; }
 });

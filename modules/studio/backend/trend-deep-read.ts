@@ -43,7 +43,7 @@ export async function submitTrendDeepRead(input: unknown, actor: string) {
     LEFT JOIN studio_content_imports i ON i.id = d.import_id
     WHERE source.enabled AND NOT source.archived AND r.state = 'completed' AND r.result->>'decision' = 'relevant'
       AND s.last_seen_at >= now() - interval '2 hours'
-      AND NOT EXISTS (SELECT 1 FROM studio_trend_event_links l WHERE l.signal_id=s.id)
+      AND NOT EXISTS (SELECT 1 FROM studio_trend_event_links l WHERE l.signal_id=s.id AND l.signal_context_key=s.relevance_key)
       AND (d.signal_id IS NULL OR i.state = 'interrupted' OR (${query.retryFailed} AND i.state <> 'ready'
         AND NOT EXISTS (SELECT 1 FROM pgboss.job j WHERE j.name = ${contentImportQueue.name} AND j.id = i.job_id AND j.state IN ('created', 'retry', 'active'))))
     ORDER BY s.last_seen_at DESC, s.id LIMIT 50`;

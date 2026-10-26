@@ -11,6 +11,8 @@ import { sharedEventObservations, type ObservedSharedEvent } from "./shared-even
 import { rankTopicDirections } from "./topic-ranking.ts";
 import { DEFAULT_EDITORIAL_V2, freshness, heatSnapshot, routePublic, scoreInternal } from "./editorial-v2.ts";
 import { publicSummaryState } from "./shared-material.ts";
+import { historyEvidenceKey } from "./history-entities.ts";
+import { freezeSharedTopicSignals } from "./topic-signals.ts";
 
 type Analysis = NonNullable<MaterialAnalysisReading["result"]>;
 export type ScoringRecord = { materialId: string; title: string; kind: string; publishedAt: Date | null; collectedAt: Date; sourceKey: string;
@@ -53,7 +55,8 @@ export function scoreConfiguredDirection(direction: TopicDirection, context: Dir
   }
   // The primary core event owns the heat; never take the hottest cited background event.
   const primary = events.find(event => event.id === direction.primaryCoreEventId);
-  const ageHours = primary?.time ? (Date.parse(context.asOf) - Date.parse(primary.time.at)) / 3_600_000 : null;
+  const primaryTime=primary?.time?.at??primary?.publicationFallbackAt;
+  const ageHours = primaryTime ? (Date.parse(context.asOf) - Date.parse(primaryTime)) / 3_600_000 : null;
   const F = freshness(ageHours === null || ageHours < 0 ? null : ageHours, { policy: editorial }).decision;
   const observed = primary?.heatObserved ?? null, fresh = primary?.heatFresh ?? null, state = primary?.heatState ?? "unknown";
   const score = scoreInternal({ dimensions: { I: direction.dimensions.audience ?? 0, M: direction.dimensions.impact ?? 0,
@@ -84,13 +87,33 @@ export async function rescoreCurrentDirections(db: Db, result: TopicRecommendati
   if (!result.filterPolicy || !result.sharedSignals) return result;
   const ids = result.sharedSignals.events.map(event => event.id).filter(id => z.uuid().safeParse(id).success);
   const observed = await sharedEventObservations(db, ids, now, policy), asOf = now.toISOString();
+  const records=await scoringRecords(db,db`h.material_id=ANY(${materials.map(material=>material.id)}::text[])`);
+  const currentMaterials=materials.flatMap(material=>{
+    const record=records.find(record=>record.materialId===material.id&&record.sourceKey===historyEvidenceKey(material));
+    return record?.analysis?[{material,analysis:{materialId:material.id,state:"completed" as const,...record.analysis,receiptId:null,error:null}}]:[];
+  });
+  const local=freezeSharedTopicSignals(currentMaterials,asOf,policy.propagation,policy.heat,policy.editorial);
   const events = result.sharedSignals.events.map(event => {
     const current = observed.get(event.id);
-    return current ? { ...event, propagation: current.propagation, breakout: current.breakout, heat: current.heat, time: current.event.time }
-      : { ...event, heat: undefined, breakout: { triggered: false, candidate: false, reasons: ["current_observation_unavailable"] } };
+    const fallback=local?.events.find(candidate=>candidate.id===event.id);
+    return current ? { ...event, propagation: current.propagation, breakout: current.breakout, heat: current.heat, time: current.event.time,timeConflict:current.event.timeConflict,
+      heatObserved:current.heatV2.observed,heatFresh:current.heatV2.freshObserved,heatState:current.heatV2.state,heatDecision:current.heatV2.decisionValue,
+      heatCompensated:current.heatV2.heatCompensated,interval:[current.heatV2.lower,current.heatV2.upper] as [number,number] }
+      : fallback ?? { ...event, heat: undefined,heatObserved:null,heatFresh:null,heatState:"unknown" as const,heatDecision:policy.editorial?.heat.decisionPlaceholder??40,
+        heatCompensated:true,interval:[0,100] as [number,number],breakout: { triggered: false, candidate: false, reasons: ["current_observation_unavailable"] } };
   });
   const candidates = result.sharedSignals.candidates.map(candidate => {
     const event = events.find(event => event.id === candidate.eventId);
+    if(result.sharedSignals!.policy==="shared-topic-v2") {
+      const refreshed=local?.candidates.find(current=>current.materialId===candidate.materialId);
+      const material=materials.find(material=>material.id===candidate.materialId),record=records.find(record=>record.materialId===candidate.materialId);
+      if(!refreshed||!record||!material||record.sourceKey!==historyEvidenceKey(material))return{...candidate,path:null,reason:"当前原文版本或事实依据已变化，请更新草案"};
+      const route=scoreMaterialV2({...record,private:false},observed.get(candidate.eventId),asOf,policy).route;
+      const path=route==="major_event"?"major_event" as const:route==="verified_breakout"?"breakout" as const
+        :route==="general_ai_selected"?"general_ai" as const:route==="market_reference"?"market_reference" as const
+        :route==="direct_all"||route==="direct_selected"?"direct" as const:null;
+      return {...refreshed,route,path};
+    }
     const path = !candidate.evidenceAvailable ? null
       : event?.breakout?.triggered && candidate.path !== "market_reference" ? "breakout" as const
       : candidate.path ?? (["direct", "important_ai"].includes(candidate.scope)

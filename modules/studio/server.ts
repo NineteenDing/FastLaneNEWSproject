@@ -144,7 +144,7 @@ export const createStudioServer = (resources: {
     studioTopicPreviewsRemoved: await pruneTopicPreviews(now) }),
   schedules: [
     { name: "studio.film.metadata.schedule", cron: "*/2 * * * *", when: collectionRuntimeAllowed, run: scheduleFilmMetadata },
-    { name: "studio.news.titles.schedule", cron: "*/2 * * * *", run: scheduleNewsTitles },
+    { name: "studio.news.titles.schedule", cron: "*/2 * * * *", run: () => scheduleNewsTitles() },
     { name: "studio.trends.news.schedule", cron: "* * * * *", when: collectionRuntimeAllowed, run: scheduleTrendNews },
     { name: "studio.trends.links.schedule", cron: "* * * * *", run: refreshTrendEventLinks },
     { name: "studio.news.publication.schedule", cron: "* * * * *", missed: "once", run: reconcilePublicNews },
@@ -241,6 +241,7 @@ export const createStudioServer = (resources: {
         .header("Content-Security-Policy", "default-src 'none'; sandbox").type(image.type).send(image.body);
     }));
     app.get("/api/admin/studio/news-sources", adminHandler(async (req) => newsSources(req.query)));
+    app.post("/api/admin/studio/news-titles/retry", adminHandler(() => scheduleNewsTitles(true)));
     app.get("/api/admin/studio/trends/boards", adminHandler(trendBoards));
     app.post("/api/admin/studio/trends/boards/:platform", adminHandler((req, _reply, admin) =>
       connectTrendBoard((req.params as { platform: string }).platform, req.body, actorOf(admin))));

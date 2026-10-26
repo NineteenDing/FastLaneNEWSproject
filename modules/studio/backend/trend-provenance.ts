@@ -13,7 +13,8 @@ export function newsMaterialTrendsSql(db: Tx, articleId: ReturnType<Tx>) {
       'active',last_observation.observed_at >= platform_latest.at,
       'observations',jsonb_build_array(jsonb_build_object('observedAt',last_observation.observed_at,'rank',last_observation.rank,
         'rawHeat',last_observation.raw_heat,'metrics',last_observation.metrics))) AS item
-    FROM studio_trend_event_links l JOIN studio_trend_signals s ON s.id=l.signal_id
+    FROM studio_trend_event_links l JOIN studio_trend_signals s ON s.id=l.signal_id AND s.relevance_key=l.signal_context_key
+    JOIN studio_trend_relevance relevance ON relevance.signal_id=s.id AND relevance.context_key=s.relevance_key AND relevance.state='completed' AND relevance.result->>'decision'='relevant'
     JOIN studio_history_index h ON h.material_id=l.material_id AND h.knowledge->>'sourceKey'=l.source_key
     JOIN studio_trend_boards b ON b.platform=s.platform JOIN sources source ON source.id=b.source_id
     JOIN LATERAL(SELECT * FROM studio_trend_observations o WHERE o.signal_id=s.id AND o.observed_at<=now()

@@ -342,7 +342,7 @@ test("真实网页可查看候选七点与原链接，显式更新且按原规�
     await queue.run([updatedJob.data] as never[]); await boss.complete(queue.name, updatedJob.id);
     await section.getByRole("button", { name: "刷新草案进度", exact: true }).click(); await expect(section).toContainText("材料、指标或栏目规则已有变化");
     const saved = (await app.inject({ url: endpoint, headers })).json();
-    assert.equal(saved.columns.find((column: { id: string }) => column.id === "practice").version, 2);
+    assert.equal(saved.columns.find((column: { id: string }) => column.id === "practice").version, currentVersion+1);
     assert.ok(JSON.stringify(saved.result).includes("先检查分镜再检查光线")); assert.ok(!JSON.stringify(saved.result).includes("更正：只验证了固定机位"));
     assert.equal((await app.inject({ url: "/api/admin/studio/topic-batches", headers })).json().total, 0);
   } finally { await browser.close(); await web.stop(); }

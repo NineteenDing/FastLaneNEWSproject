@@ -62,15 +62,15 @@ test("微博热榜话题经原客户端有界搜索取得一条代表原文，�
 
 test("话题搜索无结果不伪造原文，显式重试复用额度和已有作品且不改写旧正文", async () => {
   transport.get("https://s.weibo.com").intercept({ path: "/top/summary?cate=realtimehot" }).reply(200,
-    '<div id="pl_top_realtimehot"><table><tbody><tr><td class="td-01">1</td><td class="td-02"><a href="/weibo?q=角色镜头衔接">角色镜头衔接</a></td></tr></tbody></table></div>');
+    '<div id="pl_top_realtimehot"><table><tbody><tr><td class="td-01">1</td><td class="td-02"><a href="/weibo?q=AI角色镜头衔接">AI角色镜头衔接</a></td></tr></tbody></table></div>');
   await app.inject({ method: "POST", url: "/api/admin/studio/trends/boards/weibo/check", headers, payload: {} }); await run("studio.trends.collect");
   await app.inject({ method: "POST", url: "/api/admin/studio/trends/relevance", headers, payload: {} }); await run("studio.trends.relevance");
   assert.equal((await app.inject({ method: "POST", url: "/api/admin/studio/trends/deep-read", headers, payload: {} })).json().queuedCount, 1);
-  const search = () => transport.get("https://m.weibo.cn").intercept({ path: value => new URL(value, "https://m.weibo.cn").searchParams.get("containerid") === "100103type=1&q=角色镜头衔接" });
+  const search = () => transport.get("https://m.weibo.cn").intercept({ path: value => new URL(value, "https://m.weibo.cn").searchParams.get("containerid") === "100103type=1&q=AI角色镜头衔接" });
   search().reply(200, { ok: 1, data: { cards: [] } });
   const boss = await getBoss(), queue = module.queues!.find(queue => queue.name === "studio.content.import")!, [job] = await boss.fetch(queue.name); assert.ok(job);
   await assert.rejects(queue.run([job.data] as never[]), /未完成导入/); await boss.fail(queue.name, job.id);
-  let signal = (await app.inject({ url: "/api/admin/studio/trends/signals", headers })).json().rows.find((row: { title: string }) => row.title === "角色镜头衔接");
+  let signal = (await app.inject({ url: "/api/admin/studio/trends/signals", headers })).json().rows.find((row: { title: string }) => row.title === "AI角色镜头衔接");
   assert.equal(signal.deepRead.state, "failed"); assert.equal(signal.deepRead.materialId, null);
   assert.equal(signal.deepRead.errorCode, "no_representative", "单页搜索无候选须与平台故障区分");
   const imports = (await app.inject({ url: "/api/admin/studio/content-imports", headers })).json().rows;
@@ -82,7 +82,7 @@ test("话题搜索无结果不伪造原文，显式重试复用额度和已有�
   transport.get("https://m.weibo.cn").intercept({ path: "/detail/5300000000000011" }).reply(200,
     '<script>var $render_data = [{"status":{"id":"5300000000000011","text":"后续修改的正文","user":{"id":"5756404150"}}}][0]</script>');
   await run("studio.content.import");
-  signal = (await app.inject({ url: "/api/admin/studio/trends/signals", headers })).json().rows.find((row: { title: string }) => row.title === "角色镜头衔接");
+  signal = (await app.inject({ url: "/api/admin/studio/trends/signals", headers })).json().rows.find((row: { title: string }) => row.title === "AI角色镜头衔接");
   assert.equal(signal.deepRead.state, "ready");
   const material = (await app.inject({ url: `/api/admin/studio/intelligence/${signal.deepRead.materialId}`, headers })).json();
   assert.equal(material.body, "角色参考需锁定，再逐镜检查人物差异。"); assert.equal(material.trends.length, 2);

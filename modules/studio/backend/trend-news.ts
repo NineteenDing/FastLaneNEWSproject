@@ -94,8 +94,8 @@ export async function scheduleTrendNews(){
     JOIN studio_trend_boards b ON b.platform=s.platform JOIN sources source ON source.id=b.source_id
     LEFT JOIN studio_trend_news n ON n.signal_id=s.id AND n.relevance_key=s.relevance_key
     WHERE source.enabled AND NOT source.archived AND r.state='completed' AND r.result->>'decision'='relevant'
-      AND s.last_seen_at>=now()-interval '2 hours' AND NOT EXISTS(SELECT 1 FROM studio_trend_event_links l WHERE l.signal_id=s.id)
-      AND (n.signal_id IS NULL OR n.state='awaiting_content' AND (n.updated_at<now()-interval '6 hours' OR n.error_code='awaiting_public_original' AND EXISTS(SELECT 1 FROM studio_trend_deep_reads d JOIN studio_content_imports i ON i.id=d.import_id WHERE d.signal_id=s.id AND d.relevance_key=s.relevance_key AND i.state='ready' AND i.updated_at>n.updated_at))) ORDER BY s.last_seen_at DESC LIMIT 20`;
+      AND s.last_seen_at>=now()-interval '2 hours' AND NOT EXISTS(SELECT 1 FROM studio_trend_event_links l WHERE l.signal_id=s.id AND l.signal_context_key=s.relevance_key)
+      AND (n.signal_id IS NULL OR n.state='queued' AND n.updated_at<now()-interval '10 minutes' AND NOT EXISTS(SELECT 1 FROM pgboss.job j WHERE j.name=${trendNewsQueue.name} AND j.id=n.job_id AND j.state IN ('created','retry','active')) OR n.state='awaiting_content' AND (n.updated_at<now()-interval '6 hours' OR n.error_code='awaiting_public_original' AND EXISTS(SELECT 1 FROM studio_trend_deep_reads d JOIN studio_content_imports i ON i.id=d.import_id WHERE d.signal_id=s.id AND d.relevance_key=s.relevance_key AND i.state='ready' AND i.updated_at>n.updated_at))) ORDER BY s.last_seen_at DESC LIMIT 20`;
   let queued=0;
   for(const row of rows){
     if(row.state==='ready')continue;
@@ -103,9 +103,10 @@ export async function scheduleTrendNews(){
     queued+=await sql.begin(async db=>{
       const [pending]=await db`INSERT INTO studio_trend_news(signal_id,relevance_key,state,run_token) VALUES(${row.id},${row.key},'queued',${token})
         ON CONFLICT(signal_id,relevance_key) DO UPDATE SET state='queued',run_token=EXCLUDED.run_token,updated_at=now()
-        WHERE studio_trend_news.state<>'queued' RETURNING signal_id`;
+        WHERE studio_trend_news.state<>'queued' OR studio_trend_news.updated_at<now()-interval '10 minutes' AND NOT EXISTS(SELECT 1 FROM pgboss.job j WHERE j.name=${trendNewsQueue.name} AND j.id=studio_trend_news.job_id AND j.state IN ('created','retry','active')) RETURNING signal_id`;
       if(!pending)return 0;const id=await enqueueOn(trendNewsQueue,{signalId:row.id,key:row.key,token},{singletonKey:`${row.id}:${row.key}`},db);
-      if(id)await db`UPDATE studio_trend_news SET job_id=${id} WHERE signal_id=${row.id} AND relevance_key=${row.key}`;return id?1:0;
+      if(!id)throw new Error('同版正文采集任务仍占用，稍后恢复');
+      await db`UPDATE studio_trend_news SET job_id=${id} WHERE signal_id=${row.id} AND relevance_key=${row.key}`;return 1;
     });
   }
   await refreshTrendEventLinks();return{queued};

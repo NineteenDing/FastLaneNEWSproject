@@ -39,7 +39,12 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
       if(heat===null||heat===undefined||heat<=0)continue;
       const reporters=[...new Map(members.map(row=>[row.participant,row])).values()];
       const platforms=(observation?.heatV2.channels.trends??[]).filter(row=>row.freshValue!==null);
-      const prior=previousEntries.find(entry=>entry.storyId===storyId&&entry.observationKey===observationKey);
+      const channels=observation!.heatV2.channels;
+      const dominant=[{key:"reports",value:channels.reports.value??-1},...channels.video.map(channel=>({key:"video:"+channel.platform,value:channel.value??-1})),
+        ...channels.trends.map(channel=>({key:"trend:"+channel.board,value:channel.value??-1}))].sort((a,b)=>b.value-a.value||a.key.localeCompare(b.key))[0]!.key;
+      const comparableKey=sha256(stableJson({scope:observationKey,event:rep.eventId,representative:rep.id,members:observation!.heatV2.memberVersion,dominant,
+        platforms:platforms.map(row=>row.board).sort()}));
+      const prior=previousEntries.find(entry=>entry.storyId===storyId&&entry.observationKey===comparableKey);
       const pct=prior&&prior.heat>0?(heat-prior.heat)/prior.heat:null;
       const latest=Math.max(...members.map(row=>row.publishedAt.getTime()));
       entries.push({rank:0,storyId,storyPublicId:rep.publicId,title:rep.title,heat:Math.round(heat*100)/100,
@@ -48,7 +53,7 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
         participantCount:reporters.length+platforms.length,sourceCount:new Set(members.map(row=>row.sourceId)).size,
         signalCount:platforms.length,reportCount:members.length,sourceNames:[...new Set(members.map(row=>row.sourceName))].slice(0,8),
         latestAt:new Date(latest).toISOString(),firstReportAt:new Date(Math.min(...members.map(row=>row.publishedAt.getTime()))).toISOString(),
-        representativeItemId:rep.id,representativeUrl:rep.url,representativeSource:rep.sourceName,observationKey,
+        representativeItemId:rep.id,representativeUrl:rep.url,representativeSource:rep.sourceName,observationKey:comparableKey,
         participants:[...reporters.slice(0,30).map(row=>({name:row.sourceName,kind:"editorial" as const,tier:row.tier})),
           ...platforms.map(row=>({name:row.board,kind:"signal" as const}))]});
     }

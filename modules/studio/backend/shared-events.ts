@@ -86,7 +86,7 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
       LEFT JOIN studio_creator_subject_accounts member ON member.account_id = c.id
       LEFT JOIN studio_creator_work_posts work ON work.post_id = p.id
       LEFT JOIN LATERAL (SELECT o.metrics, o.observed_at FROM studio_creator_observations o WHERE o.post_id = p.id AND o.observed_at <= ${asOf}
-        ORDER BY o.observed_at DESC, o.id DESC LIMIT 1) observation ON true
+        ORDER BY o.observed_at DESC, (o.metrics = p.content->'metrics') DESC, o.id DESC LIMIT 1) observation ON true
       WHERE m.event_id = ANY(${eventIds}::uuid[]) AND (${unbounded} OR h.published_at >= ${startsAt}) AND h.published_at <= ${asOf}
         AND h.collected_at <= ${asOf} AND m.created_at <= ${asOf} AND ${publicMember}`;
   const editorial = policy.editorial ?? DEFAULT_EDITORIAL_V2;
@@ -105,7 +105,8 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
       state: observed === null ? "unknown" : "partial", observed, freshObserved: fresh,
       channels: { ...baseHeat.channels, trends: trends.channels }, missingReasons: baseHeat.missingReasons }, editorial);
     heatV2.expectedScopeVersion=expectedScopeVersion;
-    heatV2.memberVersion=sha256(stableJson(members.map(member=>({id:member.materialId,participant:member.participant,observedAt:member.observedAt}))));
+    heatV2.memberVersion=sha256(stableJson(members.map(member=>({id:member.materialId,participant:member.participant,
+      reportingKind:member.reportingKind})).sort((a,b)=>a.id.localeCompare(b.id))));
     const evidenceTimes = times.filter(row => row.eventId === event.id), resolved = resolveEventTime(evidenceTimes);
     const rules = { ...policy.propagation, independentReports: editorial.breakout.reports, observedViews: editorial.breakout.views, independentAuthors: editorial.breakout.authors };
     const observation = observeEvent(members, qualified, asOf.toISOString(), rules, editorial.breakout.freshHours);

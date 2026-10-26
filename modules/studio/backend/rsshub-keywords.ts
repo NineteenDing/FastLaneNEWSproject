@@ -4,7 +4,7 @@ export const AI_RE = /(人工智能|通用人工智能|大模型|大语言模型
 
 // Reuse the legacy keyword-discovery seam, with a narrower policy for public platform trends.
 // A match authorizes fetching evidence; it does not verify the headline or authorize publication.
-const FILM = /影像|视频|图像|图片|音乐|音频|影视|电影|短片|短剧|漫剧|漫画|动画|剧本|演员|配音|口型|分镜|摄影|运镜|特效|观众|观影|作曲|声音克隆|数字人|video|image|music|audio|film|cinema|animation/i;
+const FILM = /影像|视频|图像|图片|音乐|音频|影视|电影|短片|短剧|漫剧|漫画|动画|剧本|演员|配音|口型|分镜|镜头|角色控制|角色一致性|人物一致性|摄影|运镜|特效|观众|观影|作曲|声音克隆|数字人|video|image|music|audio|film|cinema|animation/i;
 const AI = /\bai\b|aigc|人工智能|生成式|大模型|文生|图生|声生/i;
 const FILM_TOOLS = /可灵|即梦|海螺|Kling|Sora|Veo\b|Runway|Midjourney|Stable Diffusion|ComfyUI|Suno\b|Udio\b|Seedance|Seedream|Wan\d|万相|混元视频|Vidu\b|PixVerse|Luma\b|Hailuo/i;
 const GENERAL = /ChatGPT|GPT[-－]?\d|Claude|Gemini|DeepSeek|Qwen|千问|Kimi|MiniMax|豆包|智谱|大模型|人工智能|通用人工智能|AGI\b/i;
