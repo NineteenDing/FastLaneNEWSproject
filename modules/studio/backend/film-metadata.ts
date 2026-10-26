@@ -143,6 +143,6 @@ export const filmMetadataQueue=defineQueue<Job>({name:"studio.film.metadata",opt
 export async function scheduleFilmMetadata(){
   await sql`UPDATE studio_film_metadata metadata SET state='failed',expires_at=now(),updated_at=now()
     WHERE state='queued' AND updated_at<now()-interval '1 minute' AND NOT EXISTS(SELECT 1 FROM pgboss.job job
-      WHERE job.name=${filmMetadataQueue.name} AND job.state IN ('created','retry','active') AND job.data->>'key'=metadata.cache_key AND job.data->>'token'=metadata.run_token)`;
+      WHERE job.name=${filmMetadataQueue.name} AND job.state IN ('created','retry','active') AND job.data->>'key'=metadata.cache_key AND job.data->>'token'=metadata.run_token::text)`;
   let queued=0;for(const board of filmBoardCatalog.filter(row=>row.supported&&!row.retired))queued+=(await submitFilmMetadata(board.id)).queued;return{queued};
 }

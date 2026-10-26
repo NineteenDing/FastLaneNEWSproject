@@ -36,3 +36,9 @@ test("Vertical52详情按同一作品URL提取简介与制作国，演员国籍�
   assert.deepEqual(board.items[1].productionCountries,[]);assert.equal(board.items[1].countryStatus,"not_provided");
   assert.equal(board.sourceTotal,52);assert.equal(board.sourceIssueDate,"2026-10-22");transport.assertNoPendingInterceptors();
 });
+
+
+test("定时详情补全可扫描真实UUID任务令牌，缓存已就绪时不重复访问来源",async()=>{
+ const schedule=module.schedules!.find(row=>row.name==="studio.film.metadata.schedule");assert.ok(schedule);
+ await schedule.run();transport.assertNoPendingInterceptors();
+});
