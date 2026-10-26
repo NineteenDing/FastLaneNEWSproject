@@ -53,11 +53,12 @@ export async function publicNewsJudgement(db: Db, articleId: string): Promise<Pu
 }
 
 /** Bounded local projection only. It never asks a model to reconsider already-understood facts. */
-export async function reconcilePublicNews(now = new Date()) {
+export async function reconcilePublicNews(now = new Date(), articleIds?:string[]) {
   const cutoff = new Date(now.getTime() - 120 * 3600000);
   const rows = await sql<{ article_id: string }[]>`SELECT h.article_id FROM studio_history_index h
     LEFT JOIN studio_public_news permission ON permission.article_id = h.article_id
-    WHERE h.article_id IS NOT NULL AND (h.collected_at >= ${cutoff} OR permission.article_id IS NOT NULL)
+    WHERE h.article_id IS NOT NULL AND h.knowledge->>'sourceKey' IS NOT NULL
+      AND (${articleIds===undefined} OR h.article_id=ANY(${articleIds??[]}::text[])) AND (h.collected_at >= ${cutoff} OR permission.article_id IS NOT NULL)
     ORDER BY (h.collected_at >= ${cutoff}) DESC, permission.updated_at ASC NULLS FIRST, h.article_id LIMIT 25`;
   let published = 0;
   for (const { article_id: id } of rows) await sql.begin(async db => {

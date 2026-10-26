@@ -11,7 +11,7 @@ export function Sparkline({ values, className = "h-6 w-[88px]" }: { values: Arra
   const W = 100;
   const H = 100;
   const seen = values.filter((v): v is number => v !== null);
-  if (seen.length < 3) return <span className={`block ${className}`} aria-hidden="true" />;
+  if (seen.length < 2) return <span className={`block ${className}`} aria-hidden="true" />;
   // Scaled from zero, so a small wobble on a steady story stays a small wobble.
   const max = Math.max(...seen) || 1;
   const x = (i: number) => (i / Math.max(1, values.length - 1)) * W;

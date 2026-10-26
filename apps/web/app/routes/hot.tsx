@@ -87,18 +87,20 @@ function HeatPanel({ e }: { e: HotEntryView }) {
   const seen = e.spark.filter((v): v is number => v !== null);
   const peak = seen.length ? Math.max(...seen) : 0;
   const peakAt = e.spark.findIndex((v) => v === peak);
+  const firstSeen=e.spark.findIndex(value=>value!==null), series=firstSeen>=0?e.spark.slice(firstSeen):e.spark;
+  const minutes=firstSeen>=0?Math.round((e.spark.length-1-firstSeen)*1440/Math.max(1,e.spark.length-1)):0;
   return (
     <div className="order-first flex aspect-[2/1] flex-col rounded-panel bg-accent-softer p-4 ring-1 ring-inset ring-line-soft xl:order-none xl:aspect-[16/10] dark:bg-accent-soft">
       <div className="flex items-baseline justify-between text-[11.5px] text-ink-4">
-        <span className="font-semibold text-ink-3">24 小时热度</span>
+        <span className="font-semibold text-ink-3">实际观测热度</span>
         <span>
           {peak > 0 ? <>峰值 <span className="mono text-ink-2">{Math.round(peak)}</span></> : "观察中"}
           {peakAt >= 0 && <span> · {peakAt === e.spark.length - 1 ? "当前" : `${Math.round((e.spark.length - 1 - peakAt) * 24 / Math.max(1,e.spark.length - 1))} 小时前`}</span>}
         </span>
       </div>
-      {seen.length >= 2 ? <Sparkline values={e.spark} className="mt-3 min-h-0 w-full flex-1" /> : <p className="flex min-h-24 flex-1 items-center justify-center text-[13px] text-ink-3">正在积累可比较的真实走势</p>}
+      {seen.length >= 2 ? <Sparkline values={series} className="mt-3 min-h-0 w-full flex-1" /> : <p className="flex min-h-24 flex-1 items-center justify-center text-[13px] text-ink-3">正在积累可比较的真实走势</p>}
       <div className="mt-2 flex justify-between text-[11px] text-ink-4">
-        <span>24 小时前</span>
+        <span>{minutes>=60?`${Math.round(minutes/60)} 小时前`:`${minutes} 分钟前`}</span>
         <span>现在</span>
       </div>
     </div>

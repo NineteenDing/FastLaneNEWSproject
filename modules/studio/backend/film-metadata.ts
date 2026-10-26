@@ -121,7 +121,11 @@ export const filmMetadataQueue=defineQueue<Job>({name:"studio.film.metadata",opt
     const board=filmBoardCatalog.find(row=>row.id===job.boardId);if(!board?.supported||board.retired)continue;
     const [current]=await sql`SELECT id FROM studio_film_boards WHERE id=${job.boardId} AND version=${job.version}
       AND snapshot->>'fetchedAt'=${job.snapshotAt} AND (definition->>'enabled')::boolean`;
-    if(!current)continue;
+    if(!current){
+      await sql`UPDATE studio_film_metadata SET state='failed',expires_at=now(),updated_at=now()
+        WHERE cache_key=${job.key} AND run_token=${job.token} AND state='queued'`;
+      continue;
+    }
     try{
       const metadata=await readFilmMetadata(job.boardId,job.item);
       if(!collectionEnabled())throw new QueueDeferred("榜单详情采集已暂停");
@@ -136,4 +140,9 @@ export const filmMetadataQueue=defineQueue<Job>({name:"studio.film.metadata",opt
   }},
 });
 
-export async function scheduleFilmMetadata(){let queued=0;for(const board of filmBoardCatalog.filter(row=>row.supported&&!row.retired))queued+=(await submitFilmMetadata(board.id)).queued;return{queued};}
+export async function scheduleFilmMetadata(){
+  await sql`UPDATE studio_film_metadata metadata SET state='failed',expires_at=now(),updated_at=now()
+    WHERE state='queued' AND updated_at<now()-interval '1 minute' AND NOT EXISTS(SELECT 1 FROM pgboss.job job
+      WHERE job.name=${filmMetadataQueue.name} AND job.state IN ('created','retry','active') AND job.data->>'key'=metadata.cache_key AND job.data->>'token'=metadata.run_token)`;
+  let queued=0;for(const board of filmBoardCatalog.filter(row=>row.supported&&!row.retired))queued+=(await submitFilmMetadata(board.id)).queued;return{queued};
+}
