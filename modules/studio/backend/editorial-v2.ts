@@ -55,7 +55,7 @@ export interface HeatSnapshotV2 {
   channels: {
     reports: { value: number | null; participants: number; effective: number; freshValue: number | null; freshParticipants: number; freshEffective: number };
     video: Array<{ platform: string; value: number | null; effective: number; freshValue: number | null; freshEffective: number; works: number; authors: number; freshAuthors: number }>;
-    trends: Array<{ board: string; value: number | null; freshValue: number | null }>;
+    trends: Array<{ board: string; value: number | null; freshValue: number | null; rank?: number }>;
   };
   missingReasons: string[];
   memberVersion: string;
@@ -178,6 +178,10 @@ export function headlineBand(top: number, candidate: number, policy: EditorialPo
 
 export function comparableVolume(top: number, candidate: number, policy: EditorialPolicyV2 = EDITORIAL_V2): boolean {
   return top > 0 && candidate >= top * policy.daily.volumeRatio;
+}
+
+export function comparableRank(top:number,candidate:number) {
+  return Number.isInteger(top)&&top>=1&&Number.isInteger(candidate)&&candidate>=1&&Math.abs(top-candidate)<=2;
 }
 
 export function heatSnapshot(input: {

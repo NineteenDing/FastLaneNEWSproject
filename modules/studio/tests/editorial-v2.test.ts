@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { observeEvent, resolveEventTime, type PropagationRow } from "../backend/event-propagation.ts";
 import {
-  EDITORIAL_V2, comparableVolume, freshness, headlineBand, heatForDecision, heatSnapshot,
+  EDITORIAL_V2, comparableVolume, comparableRank, freshness, headlineBand, heatForDecision, heatSnapshot,
   interpolate, reporterHeat, routePublic, scorePublic, videoHeat,
 } from "../backend/editorial-v2.ts";
 
 const dims = (I: number, M: number, D: number, P: number, F: number) => ({ I, M, D, P, F });
+
+test("同榜热度头条始终保留最高项自身，接近带内只容许相差两名",()=>{
+  assert.equal(comparableRank(1,1),true);assert.equal(comparableRank(1,3),true);assert.equal(comparableRank(1,4),false);
+});
 
 test("直接AI影视精选包含实质模型发布和观看争议，缺测不能要求教程或B70", () => {
   const kling = routePublic({ dimensions: dims(70, 65, 65, 75, 40), observed: 12.15, freshObserved: 12.15,

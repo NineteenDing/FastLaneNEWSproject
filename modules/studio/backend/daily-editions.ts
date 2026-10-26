@@ -12,7 +12,7 @@ import { scoringRecords, scoreMaterialV2 } from "./filter-scoring.ts";
 import { sharedEventObservations } from "./shared-events.ts";
 import { publicSummaryState } from "./shared-material.ts";
 import type { DailyEditionPage, FilterPolicy } from "../contracts.ts";
-import { EDITORIAL_V2, comparableVolume, headlineBand } from "./editorial-v2.ts";
+import { EDITORIAL_V2, comparableVolume, comparableRank, headlineBand } from "./editorial-v2.ts";
 import { studioChatJson } from "./studio-model.ts";
 import { modelWorkAllowed } from "./model-operations.ts";
 import { createModelAdmission } from "./model-admission.ts";
@@ -72,7 +72,7 @@ async function capture(day: string): Promise<Input> {
       const dominant = channels ? [
         { channel: "reports" as const, platform: null as string | null, value: channels.reports.value ?? -1, volume: channels.reports.effective },
         ...channels.video.map(channel => ({ channel: "video" as const, platform: channel.platform, value: channel.value ?? -1, volume: channel.effective })),
-        ...channels.trends.map(channel=>({channel:"trends" as const,platform:channel.board,value:channel.freshValue??-1,volume:0})),
+        ...channels.trends.map(channel=>({channel:"trends" as const,platform:channel.board,value:channel.freshValue??-1,volume:channel.rank??0})),
       ].sort((a, b) => b.value - a.value || (a.channel === "reports" ? -1 : 1) - (b.channel === "reports" ? -1 : 1)
         || (a.platform ?? "").localeCompare(b.platform ?? ""))[0]! : { channel: "reports" as const, platform: null, value: -1, volume: 0 };
       const eventTime = event ? event.event.time : shared.event?.time ?? null;
@@ -133,8 +133,9 @@ async function capture(day: string): Promise<Input> {
       } else {
         const topEntry = observed.find(entry => entry.heatFresh === top)!;
         const band = observed.filter(entry => headlineBand(top!, entry.heatFresh, params)
-          && (entry.channel !== topEntry.channel || entry.channelPlatform !== topEntry.channelPlatform
-            || comparableVolume(topEntry.channelVolume, entry.channelVolume, params)));
+          && (entry === topEntry || entry.channel !== topEntry.channel || entry.channelPlatform !== topEntry.channelPlatform
+            || (entry.channel === "trends" ? comparableRank(topEntry.channelVolume,entry.channelVolume)
+              : comparableVolume(topEntry.channelVolume, entry.channelVolume, params))));
         comparisonBand = band.map(entry => entry.eventKey).sort();
         lead = [...band].sort((a, b) => b.M - a.M || b.P - a.P || b.I - a.I || b.S - a.S
           || timeValue(b) - timeValue(a) || a.eventKey.localeCompare(b.eventKey))[0]!;

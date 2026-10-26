@@ -1,7 +1,7 @@
 /** Platform rank is an observed attention signal, never an inferred view counter. */
 export interface PlatformAttentionRow { platform: string; board: string; rank: number; observedAt: string; active: boolean }
 export function platformAttention(rows: PlatformAttentionRow[], asOf: string) {
-  const at = Date.parse(asOf), byPlatform = new Map<string, { value: number; fresh: boolean; board: string }>();
+  const at = Date.parse(asOf), byPlatform = new Map<string, { value: number; fresh: boolean; board: string; rank:number }>();
   for (const row of rows) {
     const age = (at - Date.parse(row.observedAt)) / 3600000;
     if (!row.active || !Number.isFinite(age) || age < 0 || !Number.isInteger(row.rank) || row.rank < 1 || row.rank > 20) continue;
@@ -9,9 +9,9 @@ export function platformAttention(rows: PlatformAttentionRow[], asOf: string) {
     const value = rankValue * 2 ** (-age / 24), fresh = age <= 2;
     const prior = byPlatform.get(row.platform);
     if (!prior || Number(fresh) > Number(prior.fresh) || fresh === prior.fresh && value > prior.value)
-      byPlatform.set(row.platform, { value, fresh, board: row.board });
+      byPlatform.set(row.platform, { value, fresh, board: row.board,rank:row.rank });
   }
-  const channels = [...byPlatform.values()].map(row => ({ board: row.board, value: row.value, freshValue: row.fresh ? row.value : null }));
+  const channels = [...byPlatform.values()].map(row => ({ board: row.board, value: row.value, freshValue: row.fresh ? row.value : null,rank:row.rank }));
   const fresh = channels.flatMap(row => row.freshValue === null ? [] : [row.freshValue]);
   const platformCount = fresh.length, breakout = platformCount >= 2;
   const bonus = platformCount >= 3 ? 99 : breakout ? 95 : 0;
