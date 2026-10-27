@@ -4,12 +4,18 @@ import { platformAttention, sameTrendHeadline } from "../backend/platform-attent
 
 test("两个独立平台同事件可确认出圈，同平台重复榜单和陈旧榜不冒充第二平台", () => {
   const asOf = "2026-10-26T12:00:00Z";
-  const row = { platform: "baidu", board: "baidu", rank: 5, observedAt: asOf, active: true };
+  const row = { platform: "baidu", board: "baidu", rank: 15, observedAt: asOf, active: true };
   assert.equal(platformAttention([row, { ...row, board: "baidu-mirror" }], asOf).breakout, false);
   const two = platformAttention([row, { ...row, platform: "douyin", board: "douyin" }], asOf);
   assert.equal(two.breakout, true);
   assert.ok(two.freshObserved! >= 95);
   assert.equal(platformAttention([row, { ...row, platform: "douyin", observedAt: "2026-10-25T12:00:00Z" }], asOf).breakout, false);
+});
+
+test('单一主流热榜前十本身就是相关出圈证据，下榜不抹去曾进前十的资格证据',()=>{
+ const at='2026-10-27T12:00:00Z';
+ assert.equal(platformAttention([{platform:'zhihu',board:'知乎热榜',rank:8,observedAt:at,active:true}],at).breakout,true);
+ assert.equal(platformAttention([{platform:'zhihu',board:'知乎热榜',rank:50,bestRank:8,observedAt:'2026-10-26T12:00:00Z',active:false}],at).breakout,true);
 });
 
 test("相关热榜的模型发布问题能关联已有发布报道，但不同版本和网安争议不能串事件",()=>{

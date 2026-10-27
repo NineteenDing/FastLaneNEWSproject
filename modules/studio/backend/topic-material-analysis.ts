@@ -18,7 +18,9 @@ import { indexAnalyzedHistoryEntities } from "./history-index.ts";
 import { assessment, materialAssessmentResult } from "./material-assessment.ts";
 import { analyzeMaterialEvidence, materialAnalysisCachePolicy, legacyMaterialAnalysisCachePolicy } from "./material-analysis.ts";
 import { materialInsightPolicy } from "./material-insights.ts";
-import { analyzeLiveMaterial, scheduleLiveMaterialAnalyses, liveMaterialTakeover, completedLiveMaterialAnalysis, type LiveAnalysisJob } from "./live-material-analysis.ts";
+import { analyzeLiveMaterial, scheduleLiveMaterialAnalyses, retryLiveMaterialAnalysis,liveMaterialTakeover, completedLiveMaterialAnalysis, type LiveAnalysisJob } from "./live-material-analysis.ts";
+import {currentWindow} from './topic-batches.ts';
+import {cutoffPreparationDue} from './topic-cutoff-policy.ts';
 import { batchEvidence } from "./topic-evidence.ts";
 import { scheduleCurrentMaterialClassifications, analyzeCurrentMaterialClassification, type ClassificationJob } from "./current-material-classification.ts";
 import type { TopicBatchMaterial, TopicColumn, TopicMaterialAnalysis, TopicMaterialAnalysisPage } from "../contracts.ts";
@@ -37,7 +39,7 @@ export function createTopicAnalysisQueue(host = createHostResourceMonitor(), dis
 }
 export const topicAnalysisQueue = createTopicAnalysisQueue();
 
-export async function submitTopicAnalysis(batchId: string, actor: string, options: { retryFailed?: boolean } = {}) {
+export async function submitTopicAnalysis(batchId: string, actor: string, options: { retryFailed?: boolean; materialIds?:string[] } = {}) {
   z.uuid().parse(batchId);
   if (!await modelWorkAllowed()) throw new Conflict("模型调用尚未启用，请先配置并启用模型服务");
   const [batch] = await sql`SELECT id FROM studio_topic_batches WHERE id = ${batchId}`;
@@ -51,7 +53,7 @@ export async function submitTopicAnalysis(batchId: string, actor: string, option
       a.material_id IS NULL AS fresh, a.entity_policy AS "entityPolicy", a.cache_policy AS "cachePolicy", a.insight_policy AS "insightPolicy" FROM (${batchEvidence(db, batchId)}) m
       LEFT JOIN studio_topic_material_analyses a ON a.batch_id = ${batchId} AND a.material_id = m.material_id
       LEFT JOIN pgboss.job j ON j.name = ${topicAnalysisQueue.name} AND j.id = a.job_id
-      WHERE (a.material_id IS NULL OR (${options.retryFailed ?? false}
+      WHERE (${options.materialIds===undefined} OR m.material_id=ANY(${options.materialIds??[]}::text[])) AND (a.material_id IS NULL OR (${options.retryFailed ?? false}
         AND a.result IS NULL AND (j.id IS NULL OR j.state IN ('failed', 'cancelled', 'completed'))))
       ORDER BY m.collected_at, m.material_id LIMIT 100`;
     const jobIds: string[] = [];
@@ -86,6 +88,15 @@ export async function submitTopicAnalysis(batchId: string, actor: string, option
 /** Continue requested batches and automatic cutoffs without repeatedly reviving failed paid work. */
 export async function scheduleTopicMaterialAnalyses() {
   if (!await modelWorkAllowed()) return { queued: 0 };
+  const window=await currentWindow();
+  if(cutoffPreparationDue(window.endsAt,new Date().toISOString())){
+    const failed=await sql<{id:string}[]>`SELECT l.material_id AS id FROM studio_live_material_analyses l JOIN studio_history_index h
+      ON h.material_id=l.material_id AND h.knowledge->>'sourceKey'=l.source_key WHERE l.state='failed' AND l.result IS NULL
+      AND h.collected_at>=${window.startsAt} AND h.collected_at<${window.endsAt}
+      AND NOT EXISTS(SELECT 1 FROM studio_cutoff_recoveries r WHERE r.window_start=${window.startsAt} AND r.material_id=l.material_id AND r.source_key=l.source_key)
+      ORDER BY h.collected_at LIMIT 20`;
+    for(const row of failed)try{await retryLiveMaterialAnalysis(row.id,'system:topic-cutoff-retry',{automaticWindow:window.startsAt});}catch(error){if(!(error instanceof Conflict))throw error;}
+  }
   const automatic = (await topicPlan()).enabled;
   const batches = await sql<{ id: string }[]>`SELECT b.id FROM studio_topic_batches b
     WHERE (${automatic} OR b.root_batch_id IS NOT NULL OR EXISTS (SELECT 1 FROM studio_topic_material_analyses requested WHERE requested.batch_id = b.id))

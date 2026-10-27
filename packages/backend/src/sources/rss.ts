@@ -177,7 +177,9 @@ export async function fetchRss(source: SourceRow, opts: { force?: boolean; read?
     const items = arr(doc.rss?.channel?.item ?? doc["rdf:RDF"]?.item);
     for (const it of items) {
       const guid = text(it.guid);
-      const page = text(it.link) || (normalizeUrl(guid) ? guid : "");
+      const rawPage=text(it.link) || (normalizeUrl(guid) ? guid : "");
+      let page='';
+      try { page=rawPage?new URL(rawPage,res.url).href:''; } catch { continue; }
       const enclosures = arr(it.enclosure as Record<string, string> | Array<Record<string, string>>);
       // An episode with no page (no <link>, a guid that is no address) links to its audio or video file,
       // which a browser plays. Its identity stays the one its guid gives, and it has no page to read a body from.

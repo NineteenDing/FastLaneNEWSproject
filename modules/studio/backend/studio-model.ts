@@ -26,9 +26,9 @@ async function beforeModelCall() {
 }
 /** No image capability is inferred from a text model's name. */
 export async function referenceVisionModel() {
-  const connection = await modelConnection();
+  const connection = await modelConnection('basic');
   if (connection.state !== "saved" || !connection.visionModel || !connection.visionPrice) throw new Conflict("请先配置支持图片的图像模型和费用估算，再开启深度分析");
-  return { model: connection.visionModel, price: connection.visionPrice, identity: connectionIdentity(connection.version, connection.baseUrl, connection.visionModel) };
+  return { model: connection.visionModel, price: connection.visionPrice, identity:'basic:'+connectionIdentity(connection.version, connection.baseUrl, connection.visionModel) };
 }
 /** Studio-specific selection/credential Adapter; receipts, schema checks and budgets stay in the engine. */
 export async function studioChatJson<S extends z.ZodType>(capability: Capability, options: Omit<ChatJsonOptions<S>, "model" | "connection"> & { expectedIdentity?: string }) {
@@ -40,7 +40,6 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
     "采样画面变化不等于精确切镜：visual以首帧为零点、每0.5秒采样，运动/字幕/闪光可触发，短镜头可能漏掉；须说明sampledUntilSeconds、truncated及缺失字段，不能声称完整画面理解。" +
     "缺少rhythm或其中audio/visual为null表示没有该项观察，不能从ASR断句或少量关键帧补造语音/画面节奏。不能推断完播率、留存、收益或博主动机已被证实。" +
     "仅在任务需要表达参考时，结合实际正文、时间段和可用观察概括开头、展开和结尾；每项给出对应材料或时间依据，将可观察特征与可能作用分开，缺少证据明确说明。不能把风格样本中的经历、事实或口头禅搬进新稿。" };
-  await beforeCall();
   const requestedProfile = modelProfileFor(options.purpose);
   const basicConfigured = requestedProfile === "basic" && (await modelConnection("basic")).version > 0;
   const profile: ModelProfile = basicConfigured ? "basic" : "creative";
@@ -70,21 +69,26 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   // Re-validate an already-paid response only for the exact frozen material/model context.
   // Parser compatibility must not cause a second network request or accept mismatched evidence.
   if (["studio_material_analysis", "studio_news_title_translation"].includes(options.purpose) && typeof options.user === "string") {
+    let sameMaterialIdentity=false;
+    try { sameMaterialIdentity=options.purpose==='studio_material_analysis'&&!!options.expectedIdentity&&JSON.parse(options.user).analysisContext?.modelIdentity===options.expectedIdentity; } catch { /* Non-JSON legacy inputs only use the exact logical key. */ }
     const key = logicalKeyFor({service:"llm",model,purpose:options.purpose,subject:options.subject,attemptTag:options.attemptTag,
       identity:{model,promptVersion:options.promptVersion,system:sha256(options.system),user:sha256(options.user),temperature:options.temperature??0.2,
         maxTokens:Math.max(options.maxTokens??1500,512)+(shortStructured?0:4000),extra,connection:connectionId}});
     const rows = await sql<{id:number;response:{choices?:Array<{message?:{content?:string}}>};usage:Record<string,unknown>|null}[]>`SELECT id,response,usage FROM receipts
       WHERE purpose=${options.purpose} AND subject=${options.subject} AND model=${model} AND status='failed'
-        AND error LIKE 'unusable output:%' AND response IS NOT NULL AND logical_key=${key} ORDER BY id DESC LIMIT 3`;
+        AND error LIKE 'unusable output:%' AND response IS NOT NULL AND (logical_key=${key}
+          OR (${sameMaterialIdentity}
+            AND request->>'userHash'=${sha256(options.user)})) ORDER BY id DESC LIMIT 4`;
     for (const row of rows) {
       try {
         const text=row.response.choices?.[0]?.message?.content??"", start=text.indexOf("{"), end=text.lastIndexOf("}");
-        const parsed=options.schema.safeParse(JSON.parse(escapeControlCharsInStrings(text.slice(start,end+1))));
+        const parsed=options.schema.safeParse(options.parse?options.parse(text):JSON.parse(escapeControlCharsInStrings(text.slice(start,end+1))));
         if (parsed.success) return {data:parsed.data,receiptId:Number(row.id),reused:true,model,usage:row.usage};
       } catch { /* Invalid saved output still requires an explicit bounded retry. */ }
     }
   }
   const activeConnection = connection;
+  await beforeCall();
   return chatJson({ ...options, beforeCall, model: "studio-connection", connection: {
     model, service: "llm", identity: connectionId, jsonMode: profile !== "basic", price, extra,
     ...(!shortStructured ? { reasoningTokens: 4000 } : {}),

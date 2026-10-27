@@ -1,0 +1,1 @@
+CREATE TABLE IF NOT EXISTS studio_cutoff_recoveries(window_start timestamptz NOT NULL,material_id text NOT NULL,source_key text NOT NULL,requested_at timestamptz NOT NULL DEFAULT now(),PRIMARY KEY(window_start,material_id,source_key));

@@ -135,7 +135,8 @@ async function review({ batchId }: Job) {
   if (!batch) throw new Error("冻结批次不存在");
   const [ranking] = await sql<{ context: DirectionRankingContext | null }[]>`SELECT ranking_context AS context FROM studio_topic_recommendations WHERE batch_id = ${batchId}`;
   const reviewBatch = { ...batch, ...(ranking?.context ? { rankingContext: ranking.context, rankingRules: rankingRulesFor(ranking.context) } : {}) };
-  const rows = await sql<{ material: TopicBatchMaterial }[]>`SELECT evidence AS material FROM (${batchEvidence(sql, batchId)}) materials ORDER BY collected_at, material_id`;
+  const rows = await sql<{ material: TopicBatchMaterial }[]>`SELECT evidence AS material FROM (${batchEvidence(sql, batchId)}) materials
+    WHERE ${!ranking?.context?.materialIds} OR material_id=ANY(${ranking?.context?.materialIds??[]}::text[]) ORDER BY collected_at, material_id`;
   const background = (await frozenTopicHistory(sql, batchId))?.items.map(item => item.material) ?? [];
   const allRows = [...rows, ...background.map(material => ({ material }))];
   const provenance = background.length ? { currentMaterialIds: rows.map(row => row.material.id), backgroundIds: background.map(material => material.id) } : {};

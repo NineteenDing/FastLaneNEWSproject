@@ -22,6 +22,9 @@ import { batchEvidence } from "./topic-evidence.ts";
 import { freezeSharedTopicSignals, sharedTopicInstructions } from "./topic-signals.ts";
 import { currentFilterPolicy } from "./filter-settings.ts";
 import { scoreConfiguredDirection } from "./filter-scoring.ts";
+import {usableForTopic} from './topic-cutoff-policy.ts';
+import {historyEvidenceKey} from './history-entities.ts';
+import {columnSemanticsKey} from './column-matching.ts';
 import type { DirectionRankingContext, TopicBatchMaterial, TopicColumn, TopicMaterialAnalysis, TopicRecommendationResult, TopicRecommendations, TopicHistorySnapshot } from "../contracts.ts";
 
 const text = z.string().trim().min(1).max(600), score = z.number().min(0).max(100).nullable();
@@ -55,8 +58,6 @@ export async function scheduleTopicGenerations() {
   const automatic = (await topicPlan()).enabled;
   const batches = await sql<{ id: string }[]>`SELECT b.id FROM studio_topic_batches b
     WHERE (${automatic} OR b.root_batch_id IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM studio_topic_recommendations r WHERE r.batch_id = b.id)
-      AND NOT EXISTS (SELECT 1 FROM (${batchEvidence(sql)}) m LEFT JOIN studio_topic_material_analyses a
-        ON a.batch_id = b.id AND a.material_id = m.material_id WHERE m.batch_id = b.id AND (a.result IS NULL OR a.state <> 'completed'))
     ORDER BY b.ends_at, b.id LIMIT 5`;
   let queued = 0;
   for (const batch of batches) if ((await submitTopicGeneration(batch.id, "system:studio.topic.generate"))?.queued) queued++;
@@ -66,7 +67,7 @@ export async function scheduleTopicGenerations() {
 export async function submitTopicGeneration(batchId: string, actor: string, options: { retryFailed?: boolean } = {}) {
   z.uuid().parse(batchId);
   if (!await modelWorkAllowed()) throw new Conflict("模型调用尚未启用，请先配置并启用模型服务");
-  const [batch] = await sql<{ id: string; endsAt: Date }[]>`SELECT id, ends_at AS "endsAt" FROM studio_topic_batches WHERE id = ${batchId}`;
+  const [batch] = await sql<{ id: string; endsAt: Date;columns:TopicColumn[];audience:string }[]>`SELECT id,columns,audience, ends_at AS "endsAt" FROM studio_topic_batches WHERE id = ${batchId}`;
   if (!batch) return null;
   await ensureQueue(topicGenerationQueue.name, topicGenerationQueue.options);
   return sql.begin(async db => {
@@ -77,14 +78,11 @@ export async function submitTopicGeneration(batchId: string, actor: string, opti
     const [coverage] = await db<{ total: number; pending: number }[]>`SELECT count(*)::int AS total,
       count(*) FILTER (WHERE a.result IS NULL OR a.state <> 'completed')::int AS pending FROM (${batchEvidence(db, batchId)}) m
       LEFT JOIN studio_topic_material_analyses a ON a.batch_id = ${batchId} AND a.material_id = m.material_id`;
-    if (coverage!.pending) throw new Conflict("本批次材料初筛尚未完成，请先补齐分析并检查处理缺口");
     if (!coverage!.total) {
       await db`INSERT INTO studio_topic_recommendations (batch_id, state, result) VALUES (${batchId}, 'draft', ${db.json({ directions: [], assignments: [] })})`;
       await audit(actor, "studio.topic.generate.empty", `batch:${batchId}`, null, null, { materials: 0 }, { db });
       return { queued: false, jobId: null };
     }
-    const id = await enqueueOn(topicGenerationQueue, { batchId }, { singletonKey: batchId, group: { id: "topic-generation" } }, db);
-    if (!id) return { queued: false, jobId: null };
     if (!existing) await initializeTopicHistory(db, batchId);
     const feedback = existing ? [] : await freezeTopicFeedback(db, batchId);
     const adopted = existing ? [] : await freezeTopicAdoptions(db, batchId);
@@ -92,14 +90,43 @@ export async function submitTopicGeneration(batchId: string, actor: string, opti
       ? { policy: "studio-direction-ranking-v4-adoption", asOf: batch.endsAt.toISOString(), feedback, adopted } : feedback.length
       ? { policy: "studio-direction-ranking-v3-feedback", asOf: batch.endsAt.toISOString(), feedback }
       : { policy: "studio-direction-ranking-v2", asOf: batch.endsAt.toISOString() };
+    const allMaterials=await db<Array<Material&{state:string}>>`SELECT m.evidence AS material,
+      CASE WHEN a.result IS NOT NULL THEN a.result ELSE l.result END AS analysis,
+      CASE WHEN a.result IS NOT NULL THEN a.state ELSE l.state END AS state FROM (${batchEvidence(db,batchId)}) m
+      LEFT JOIN studio_topic_material_analyses a ON a.batch_id=${batchId} AND a.material_id=m.material_id
+      LEFT JOIN studio_live_material_analyses l ON l.material_id=m.material_id AND l.source_key=m.source_key ORDER BY m.collected_at,m.material_id`;
+    const available=allMaterials.filter(usableForTopic);
     if (!existing && rankingContext) {
-      const materials = await db<Material[]>`SELECT m.evidence AS material, a.result AS analysis FROM (${batchEvidence(db, batchId)}) m
-        LEFT JOIN studio_topic_material_analyses a ON a.batch_id = ${batchId} AND a.material_id = m.material_id ORDER BY m.collected_at, m.material_id`;
+      const materials = available;
+      rankingContext.materialIds=available.map(row=>row.material.id);
+      rankingContext.materialAnalyses=Object.fromEntries(available.map(row=>[row.material.id,row.analysis!]));
       rankingContext.filterPolicy = await currentFilterPolicy(db);
       const sharedSignals = freezeSharedTopicSignals(materials, rankingContext.asOf, rankingContext.filterPolicy.propagation,
         rankingContext.filterPolicy.heat, rankingContext.filterPolicy.editorial);
       if (sharedSignals) rankingContext.sharedSignals = sharedSignals;
     }
+    // A completed pre-cutoff draft gives the 20:00 edition immediately; only exact frozen evidence may seed it.
+    if(!existing&&rankingContext){
+      const [preview]=await db<{result:TopicRecommendationResult|null;input:{columns:TopicColumn[];audience:string;materials:TopicBatchMaterial[];previous?:{result:TopicRecommendationResult;input:{columns:TopicColumn[];audience:string;materials:TopicBatchMaterial[]}}};generated_at:Date|null}[]>`
+        SELECT p.result,p.input,p.generated_at FROM studio_topic_previews p JOIN studio_topic_batches b ON b.starts_at=p.starts_at WHERE b.id=${batchId}`;
+      const candidate=preview?.result??preview?.input.previous?.result,previewContext=preview?.result?preview.input:preview?.input.previous?.input,snapshot=previewContext?.materials;
+      if(candidate?.directions.length&&snapshot?.length&&previewContext?.audience===batch.audience&&columnSemanticsKey(previewContext.columns)===columnSemanticsKey(batch.columns)){
+        const included=available.filter(row=>snapshot.some(old=>old.id===row.material.id&&historyEvidenceKey(old)===historyEvidenceKey(row.material)));
+        if(included.length===snapshot.length){
+          const parsed=topicDraftSchema(batch.columns,included).safeParse({directions:candidate.directions.map(({score:_score,...direction})=>direction),assignments:candidate.assignments});
+          if(parsed.success){rankingContext.materialIds=included.map(row=>row.material.id);
+            const result=scoreTopicDraft(parsed.data,included,[],rankingContext);
+            await db`INSERT INTO studio_topic_recommendations(batch_id,state,result,ranking_context) VALUES(${batchId},'draft',${db.json(result as never)},${db.json(rankingContext as never)})`;
+            await audit(actor,'studio.topic.cutoff.seed',`batch:${batchId}`,null,null,{included:included.length,total:coverage!.total,unanalysed:coverage!.pending},{db});
+            return{queued:false,jobId:null};
+          }
+        }
+      }
+      if(!available.length){await db`INSERT INTO studio_topic_recommendations(batch_id,state,result,ranking_context)
+        VALUES(${batchId},'draft',${db.json({directions:[],assignments:[]})},${db.json(rankingContext as never)})`;return{queued:false,jobId:null};}
+    }
+    const id = await enqueueOn(topicGenerationQueue, { batchId }, { singletonKey: batchId, group: { id: "topic-generation" },priority:30 }, db);
+    if (!id) return { queued: false, jobId: null };
     await db`INSERT INTO studio_topic_recommendations (batch_id, state, job_id, ranking_context) VALUES (${batchId}, 'queued', ${id}, ${rankingContext ? db.json(rankingContext as never) : null})
       ON CONFLICT (batch_id) DO UPDATE SET state = 'queued', job_id = EXCLUDED.job_id, error = NULL, updated_at = now()`;
     await audit(actor, "studio.topic.generate.submit", `batch:${batchId}`, null, null, { queued: true }, { db });
@@ -130,9 +157,11 @@ async function generate(job: Job) {
   if (saved?.result) return;
   const [batch] = await sql<{ columns: TopicColumn[]; audience: string }[]>`SELECT columns, audience FROM studio_topic_batches WHERE id = ${job.batchId}`;
   if (!batch) throw new Error("冻结批次不存在");
-  const materials = await sql<Material[]>`SELECT m.evidence AS material, a.result AS analysis FROM (${batchEvidence(sql, job.batchId)}) m
+  const storedMaterials = await sql<Material[]>`SELECT m.evidence AS material, a.result AS analysis FROM (${batchEvidence(sql, job.batchId)}) m
     LEFT JOIN studio_topic_material_analyses a ON a.batch_id = ${job.batchId} AND a.material_id = m.material_id
+    WHERE ${!saved?.ranking_context?.materialIds} OR m.material_id=ANY(${saved?.ranking_context?.materialIds??[]}::text[])
     ORDER BY m.collected_at, m.material_id`;
+  const materials=storedMaterials.map(row=>({...row,analysis:saved?.ranking_context?.materialAnalyses?.[row.material.id]??row.analysis}));
   await sql`UPDATE studio_topic_recommendations SET state = 'running', error = NULL, updated_at = now() WHERE batch_id = ${job.batchId}`;
   try {
     const background = await prepareTopicHistory(job.batchId, materials);

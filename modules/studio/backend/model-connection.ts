@@ -11,11 +11,15 @@ import { modelWorkAllowed } from "./model-operations.ts";
 
 const connectionKey = (profile: ModelProfile) => profile === "basic" ? "studio.model-basic-connection" : "studio.model-connection";
 type Value = { version: number; baseUrl: string; analysisModel: string; qualityModel: string; sealedKey: string | null;
+  visionEnabled?:boolean;
   analysisPrice?: ModelConnection["analysisPrice"]; qualityPrice?: ModelConnection["qualityPrice"]; visionModel?: string | null; visionPrice?: ModelConnection["visionPrice"] };
 type Row = { value: Value; updated_at: Date };
 /** Read old settings without rewriting secrets/history or carrying Pro/vision prices into Flash. */
 function flashConnection(value: Value, profile: ModelProfile = "creative"): Value {
-  if (profile === "basic") return { ...value, qualityModel: value.analysisModel, visionModel: null, visionPrice: null };
+  if (profile === "basic") {
+    const visionModel=(value.visionEnabled??(value.analysisModel==='agnes-3.0-flash'||!!value.visionModel))?value.analysisModel:null;
+    return { ...value, qualityModel: value.analysisModel, visionModel, visionPrice:visionModel?value.analysisPrice:null };
+  }
   const price = (value.analysisModel === STUDIO_MODEL ? value.analysisPrice : null)
     ?? (new URL(value.baseUrl).origin === "https://api.deepseek.com" ? { inputPerMillion: 2, outputPerMillion: 8 } : null);
   return { ...value, analysisModel: STUDIO_MODEL, qualityModel: STUDIO_MODEL, analysisPrice: price, qualityPrice: price,
@@ -98,6 +102,7 @@ export async function saveModelConnection(value: unknown, actor: string, profile
     const visionModel = input.visionModel !== undefined ? input.visionModel : sameService ? before?.value.visionModel ?? null : null;
     const stored = flashConnection({ version: input.version + 1, baseUrl: input.baseUrl,
       analysisModel: profile === "basic" ? input.analysisModel : STUDIO_MODEL, qualityModel: STUDIO_MODEL, sealedKey, visionModel,
+      ...(profile==='basic'?{visionEnabled:input.visionModel!==undefined?!!input.visionModel:before?.value.visionEnabled??input.analysisModel==='agnes-3.0-flash'}:{}),
       analysisPrice: input.analysisPrice !== undefined ? input.analysisPrice : sameService && before ? flashConnection(before.value, profile).analysisPrice : null }, profile);
     const [saved] = await tx<Row[]>`INSERT INTO settings (key, value, updated_by) VALUES (${settingKey}, ${tx.json(stored)}, ${actor})
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING value, updated_at`;

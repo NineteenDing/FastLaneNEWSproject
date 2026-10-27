@@ -5,7 +5,7 @@ import {verifiedModelLaunch,editorialEvidenceScope} from "../backend/editorial-e
 import type {SharedMaterial} from "../backend/shared-material.ts";
 import {trendRepresentative} from "../backend/trend-representative.ts";
 test("材料和翻译走基础API，选题/审核/口播/风格与未知任务均保留创作API",()=>{
- for(const p of ["studio_material_analysis","studio_news_title_translation","studio_film_translation","studio_daily_edition"])assert.equal(modelProfileFor(p),"basic");
+ for(const p of ["studio_material_analysis","studio_news_title_translation","studio_film_translation","studio_daily_edition","studio_writing_reference_vision"])assert.equal(modelProfileFor(p),"basic");
  for(const p of ["studio_topic_generation","studio_topic_review","studio_writing_draft","studio_style_creator","studio_style_learning","unrecognized"])assert.equal(modelProfileFor(p),"creative");
 });
 test("发布证据不能靠标题或名人表态；必须有已落地的版本发布及可用性事实",()=>{

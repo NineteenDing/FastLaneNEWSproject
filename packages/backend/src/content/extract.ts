@@ -15,12 +15,13 @@ import { onlyXArticleLink, xArticleText } from "../sources/x.ts";
 import { sanitizeBody, trimTrailingChrome } from "./sanitize.ts";
 import { contentHash, fillPublicationTime, reviseMaterial } from "./materials.ts";
 import { markdownBody } from "./markdown.ts";
+import {declaredArticleHtml} from './article-data.ts';
 
 export interface ExtractedBody {
   html: string;
   text: string;
   images: Array<{ kind: "image"; url: string; width: number | null; height: number | null }>;
-  via: "readability" | "jina";
+  via: "readability" | "jina" | "publisher";
   /** The page's publication metadata; neither modification time nor dates mentioned in its prose. */
   publishedAt?: Date | null;
 }
@@ -100,6 +101,8 @@ function settleInlineVisibility(document: ReturnType<typeof parseHTML>["document
 export function readable(html: string, url: string, utcOffset?: string): ExtractedBody | null {
   if (isVideoPageUrl(url)) return null;
   const { document } = parseHTML(html);
+  if(/Attention Required|Just a moment|Access denied|安全验证|人机验证|验证码/i.test(document.title??'')
+    ||document.querySelector('#challenge-form, #cf-challenge-running'))return null;
   try {
     const base = document.createElement("base");
     base.setAttribute("href", url);
@@ -110,10 +113,13 @@ export function readable(html: string, url: string, utcOffset?: string): Extract
   settleStreamedContent(document);
   settleInlineVisibility(document);
   const article = new Readability(document as unknown as ConstructorParameters<typeof Readability>[0], { charThreshold: MIN_BODY_CHARS, keepClasses: false }).parse();
-  if (!article?.content) return null;
-  const clean = trimTrailingChrome(sanitizeBody(article.content, url));
+  const declared=declaredArticleHtml(html,url);
+  if (!article?.content&&!declared) return null;
+  const selected=article?.content??declared!;
+  let clean = trimTrailingChrome(sanitizeBody(selected, url));
+  if(stripTags(clean).length<MIN_BODY_CHARS&&declared)clean=trimTrailingChrome(sanitizeBody(declared,url));
   const text = stripTags(clean);
-  if (text.length < MIN_BODY_CHARS) return null;
+  if (text.length < (declared?80:MIN_BODY_CHARS)) return null;
   const images: ExtractedBody["images"] = [];
   for (const m of clean.matchAll(/<img\b[^>]*\bsrc="([^"]+)"[^>]*>/gi)) {
     const w = /\bwidth="(\d+)"/.exec(m[0]);
@@ -121,13 +127,20 @@ export function readable(html: string, url: string, utcOffset?: string): Extract
     images.push({ kind: "image", url: m[1]!.replace(/&amp;/g, "&"), width: w ? Number(w[1]) : null, height: h ? Number(h[1]) : null });
     if (images.length >= 12) break;
   }
-  return { html: clean, text, images, via: "readability", publishedAt: parseLooseDate(article.publishedTime, utcOffset) };
+  return { html: clean, text, images, via:declared?'publisher':"readability", publishedAt: parseLooseDate(article?.publishedTime??'', utcOffset) };
 }
 
 export async function extractFromUrl(url: string, subject: string, utcOffset?: string): Promise<ExtractedBody | null> {
+  if(url.startsWith('//'))url='https:'+url;
   if (isVideoPageUrl(url)) return null;
+  const target=new URL(url);
+  if(target.hostname==='qwen.ai'&&target.pathname==='/blog'&&target.searchParams.get('id'))try{
+    const r=await guardedFetch('https://qwen.ai/api/v2/article/retrieval?language=zh-CN&type=qwen_ai',{timeoutMs:20000,maxBytes:6*1024**2});
+    const entries=JSON.parse(r.text()).data?.articles,entry=Array.isArray(entries)?entries.find((e:{path?:string})=>e.path===target.searchParams.get('id')):null;
+    if(typeof entry?.content==='string'){const html=trimTrailingChrome(sanitizeBody(entry.content,url)),text=stripTags(html);if(text.length>=MIN_BODY_CHARS)return{html,text,images:[],via:'publisher'};}
+  }catch{}
   try {
-    const res = await guardedFetch(url, { timeoutMs: 20_000, maxBytes: 6 * 1024 * 1024 });
+    const res = await guardedFetch(url, { timeoutMs: 20_000, maxBytes: 6 * 1024 * 1024,headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36','accept':'text/html,application/xhtml+xml'} });
     if (isVideoPageUrl(res.url)) return null;
     const type = res.headers.get("content-type") ?? "";
     if (res.status === 200 && /html/.test(type)) {
@@ -137,6 +150,11 @@ export async function extractFromUrl(url: string, subject: string, utcOffset?: s
   } catch {
     // fall through to Jina
   }
+  // Publisher's public lightweight variant, bounded to one additional request.
+  if(/(^|\.)beforesandafters\.com$/.test(target.hostname))try{
+    const variant=new URL(url);variant.searchParams.set('amp','1');const r=await guardedFetch(variant.href,{timeoutMs:15000,maxBytes:4*1024**2});
+    if(r.status===200){const got=readable(r.text(),url,utcOffset);if(got)return got;}
+  }catch{}
   try {
     const page = await jinaRead(url, { purpose: "body_fallback", subject });
     const html = markdownBody(page.markdown, url);

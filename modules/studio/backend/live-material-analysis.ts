@@ -25,7 +25,7 @@ export async function liveMaterialAnalysis(materialId: string) {
 }
 
 /** Retry the persisted context, not whatever evidence happens to be current at recovery time. */
-export async function retryLiveMaterialAnalysis(materialId: string, actor: string) {
+export async function retryLiveMaterialAnalysis(materialId: string, actor: string,options:{automaticWindow?:string}={}) {
   materialIdSchema.parse(materialId);
   if (!await modelWorkAllowed()) throw new Conflict("模型调用尚未启用，请先配置并启用模型服务");
   await ensureQueue(topicAnalysisQueue.name, topicAnalysisQueue.options);
@@ -39,8 +39,10 @@ export async function retryLiveMaterialAnalysis(materialId: string, actor: strin
     if (!row || row.result || !row.snapshot || row.state === "superseded") return { queued: false };
     const [active] = row.jobId ? await db`SELECT id FROM pgboss.job WHERE name = ${topicAnalysisQueue.name} AND id = ${row.jobId} AND state IN ('created', 'retry', 'active')` : [];
     if (active) return { queued: false };
+    if(options.automaticWindow){const inserted=await db`INSERT INTO studio_cutoff_recoveries(window_start,material_id,source_key)
+      VALUES(${options.automaticWindow},${materialId},${source.sourceKey}) ON CONFLICT DO NOTHING RETURNING material_id`;if(!inserted.length)return{queued:false};}
     const jobId = await enqueueOn(topicAnalysisQueue, { live: { materialId, sourceKey: source.sourceKey } },
-      { singletonKey: `live:${materialId}:${source.sourceKey}`, group: { id: "topic-material-analysis" } }, db);
+      { singletonKey: `live:${materialId}:${source.sourceKey}`, group: { id: "topic-material-analysis" },priority:20,...(options.automaticWindow?{retryLimit:0}:{}) }, db);
     if (!jobId) return { queued: false };
     await db`UPDATE studio_live_material_analyses SET state = 'queued', job_id = ${jobId}, error = NULL, updated_at = now()
       WHERE material_id = ${materialId} AND source_key = ${source.sourceKey}`;
@@ -127,7 +129,7 @@ export async function scheduleLiveMaterialAnalyses() {
       }
       const snapshot: MaterialAnalysisSnapshot = { evidence: row.evidence, columns, audience: topicAudience, insightPolicy: materialInsightPolicy, sharedPolicy: materialAnalysisCachePolicy, requireChineseTitle: true };
       const jobId = await enqueueOn(topicAnalysisQueue, { live: { materialId: item.materialId, sourceKey: item.sourceKey } },
-        { singletonKey: `live:${item.materialId}:${item.sourceKey}`, group: { id: "topic-material-analysis" } }, db);
+        { singletonKey: `live:${item.materialId}:${item.sourceKey}`, group: { id: "topic-material-analysis" },priority:10 }, db);
       if (!jobId) continue;
       await db`UPDATE studio_live_material_analyses SET state = 'queued', snapshot = ${db.json(snapshot as never)}, job_id = ${jobId}, updated_at = now()
         WHERE material_id = ${item.materialId} AND source_key = ${item.sourceKey}`;

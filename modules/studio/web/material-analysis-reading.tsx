@@ -5,7 +5,7 @@ import type { MaterialAnalysisReading, MaterialAnalysisState, TopicMaterialAnaly
 import { MaterialAnalysisEvidence } from "./topic-material-analysis";
 
 const labels: Record<MaterialAnalysisState | "not_connected", string> = {
-  not_connected: "初筛待安排", not_analyzed: "初筛待安排", pending: "初筛待安排", waiting_body: "初筛等待完整正文",
+  not_connected: "初筛待安排", not_analyzed: "初筛待安排", pending: "初筛待安排", waiting_body: "正文未取得，尚未初筛",
   queued: "初筛已排队", running: "初筛处理中", completed: "初筛已完成", failed: "初筛需重试", superseded: "初筛已交由批次处理",
 };
 export const initialAnalysisLabel = (state: MaterialAnalysisState | "not_connected") => labels[state];

@@ -35,7 +35,7 @@ function ConnectionForm({ connection, basic = false }: { connection: ModelConnec
     event.preventDefault();
     const result = await action.run("PUT", endpoint, { version: connection.version, baseUrl, analysisModel: basic ? modelName : STUDIO_MODEL, qualityModel: basic ? modelName : STUDIO_MODEL,
       ...(apiKey ? { apiKey } : {}), analysisPrice: price(analysisInput, analysisOutput),
-      visionModel: !basic && visionEnabled ? STUDIO_MODEL : null },
+      visionModel: basic && visionEnabled ? modelName : null },
       { success: "模型连接已保存，调用开关保持不变" });
     if (result) setApiKey("");
   }
@@ -67,9 +67,9 @@ function ConnectionForm({ connection, basic = false }: { connection: ModelConnec
           <label>输出单价<input type="number" min={0} max={1_000_000} step="any" value={analysisOutput} onChange={event => setAnalysisOutput(event.target.value)} required={basic || !!analysisInput} disabled={action.busy} /></label>
         </div>
       </section>
-      {!basic && <section className="studio-settings-panel studio-wide" aria-label="参考视频深度分析（可选）"><h3>参考视频深度分析（可选）</h3>
-        <div className="studio-actions"><span id="flash-vision-label">允许Flash图片分析</span><button type="button" className="studio-slide-switch" role="switch" aria-labelledby="flash-vision-label" aria-checked={visionEnabled} disabled={action.busy} onClick={() => setVisionEnabled(value => !value)}><span aria-hidden="true" /></button></div>
-        <p className="studio-caption">图片也使用同一个Flash模型与费率。请确认服务商支持图片输入；关闭时普通文本写稿照常使用，修改后保存生效。</p>
+      {basic && <section className="studio-settings-panel studio-wide" aria-label="参考视频关键帧分析（可选）"><h3>参考视频关键帧分析（可选）</h3>
+        <div className="studio-actions"><span id="flash-vision-label">允许基础模型图片分析</span><button type="button" className="studio-slide-switch" role="switch" aria-labelledby="flash-vision-label" aria-checked={visionEnabled} disabled={action.busy} onClick={() => setVisionEnabled(value => !value)}><span aria-hidden="true" /></button></div>
+        <p className="studio-caption">关键帧使用本基础API的模型与费率，Agnes支持多模态。选题、二审和写稿仍使用创作API。此开关不会启用博主采集。</p>
         <p className="studio-caption">保存不发送图片。仅在采纳选题时明确开启才准备分析；最多2条视频、每条3帧，估算超过2元不调用。相同参考和配置复用已完成结果，实际扣费以服务商为准。</p>
       </section>
       }<div className="studio-actions studio-wide"><button className="studio-primary" disabled={action.busy}>{action.busy ? "正在保存…" : "保存模型连接"}</button>

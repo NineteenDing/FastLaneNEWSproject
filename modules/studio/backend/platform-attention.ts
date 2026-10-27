@@ -1,22 +1,24 @@
 /** Platform rank is an observed attention signal, never an inferred view counter. */
-export interface PlatformAttentionRow { platform: string; board: string; rank: number; observedAt: string; active: boolean }
+export interface PlatformAttentionRow { platform: string; board: string; rank: number; bestRank?:number; url?:string; observedAt: string; active: boolean }
 export function platformAttention(rows: PlatformAttentionRow[], asOf: string) {
-  const at = Date.parse(asOf), byPlatform = new Map<string, { value: number; fresh: boolean; board: string; rank:number }>();
+  const at = Date.parse(asOf), byPlatform = new Map<string, { value: number; fresh: boolean; board: string; rank:number; platform:string;url?:string }>();
+  let topTen=false;
   for (const row of rows) {
     const age = (at - Date.parse(row.observedAt)) / 3600000;
     if (!Number.isFinite(age) || age < 0 || !Number.isInteger(row.rank) || row.rank < 1 || row.rank > 100) continue;
+    if((row.bestRank??row.rank)>=1&&(row.bestRank??row.rank)<=10)topTen=true;
     const rankValue = row.rank <= 5 ? 95 - (row.rank - 1) * 2.5 : row.rank <= 10 ? 85 - (row.rank - 5) * 2 : Math.max(40,75 - (row.rank - 10));
     const value = rankValue * 2 ** (-age / 24), fresh = row.active && age <= 2;
     const prior = byPlatform.get(row.platform);
     if (!prior || Number(fresh) > Number(prior.fresh) || fresh === prior.fresh && value > prior.value)
-      byPlatform.set(row.platform, { value, fresh, board: row.board,rank:row.rank });
+      byPlatform.set(row.platform, { value, fresh, board: row.board,rank:row.rank,platform:row.platform,url:row.url });
   }
-  const channels = [...byPlatform.values()].map(row => ({ board: row.board, value: row.value, freshValue: row.fresh ? row.value : null,rank:row.rank, referenceViews:100000 as const }));
+  const channels = [...byPlatform.values()].map(row => ({ board: row.board,platform:row.platform,url:row.url, value: row.value, freshValue: row.fresh ? row.value : null,rank:row.rank, referenceViews:100000 as const }));
   const fresh = channels.flatMap(row => row.freshValue === null ? [] : [row.freshValue]);
-  const platformCount = fresh.length, breakout = platformCount >= 2;
-  const bonus = platformCount >= 3 ? 99 : breakout ? 95 : 0;
+  const platformCount = fresh.length, breakout = topTen || platformCount >= 2;
+  const bonus = platformCount >= 3 ? 99 : platformCount>=2 ? 95 : 0;
   return { observed: channels.length ? Math.max(...channels.map(row => row.value), bonus) : null,
-    freshObserved: fresh.length ? Math.max(...fresh, bonus) : null, platformCount, breakout, channels };
+    freshObserved: fresh.length ? Math.max(...fresh, bonus) : null, platformCount, breakout, topTen, channels };
 }
 
 /** Conservative identity match; shared brand words alone never link two different releases. */

@@ -51,7 +51,7 @@ function Voices({ e }: { e: HotEntryView }) {
       {/* Lines break between the phrases, never inside one. */}
       <span className="whitespace-nowrap">
         {names.length > 0 && <span className="text-ink-3">{names.join("、")}</span>}
-        {e.sourceCount > names.length ? ` 等 ${e.sourceCount} 个来源` : names.length ? " 报道" : `${e.sourceCount} 个来源`}
+        {e.sourceNames.length > names.length ? ` 等 ${e.sourceNames.length} 个来源` : names.length ? " · 报道与热榜信号" : `${e.sourceCount} 个报道来源`}
       </span>
       <span className="mx-1.5 text-line-strong">·</span>
       <span className="whitespace-nowrap">
@@ -331,7 +331,7 @@ export default function HotPage() {
         </summary>
         <div className="max-w-[760px] space-y-2 pb-2 pl-[21px] pt-2 leading-[1.75] text-ink-3">
           <p>热度来自参与同一事件的独立账号与机构，重复采集只算一次，并按 24 小时半衰期衰减。它衡量讨论活跃程度，不是报道质量评分。</p>
-          <p>事件不因超过48小时自动下榜，而按衰减热度与新事件竞争前十。热度取独立报道、已观测视频指标、已关联的平台榜单三通道最高值；排名不换算播放量。两个独立平台同时在榜的同一相关事件属于确认出圈。热度按固定5分档比较，同档按新闻价值排序，避免把一两分的观察差异当作真实热度差距。单源只是有限观察，不代表全网冷热；趋势只用相同规则和可比信源下的真实历史。</p>
+          <p>事件不因超过48小时自动下榜，而按衰减热度与新事件竞争前十。热度取独立报道、已观测视频指标、已关联的平台榜单三通道最高值；排名不换算播放量。相关事件曾进主流热榜前十、多个独立平台同时在榜、独立报道达到门槛，或视频已观测播放量及作者数达到门槛，均可提供出圈证据。已确认的入选资格不因热度下降撤销。热度按固定5分档比较，同档按新闻价值排序；趋势只用相同规则和可比信源下的真实历史。</p>
           <p>
             信源名单只展示可公开阅读的报道来源；讨论参与者还包括只计入热度的账号与机构。同一机构的多个渠道可能合并计数，因此参与者不一定多于信源数。点击事件可查看各方报道与观点。
           </p>

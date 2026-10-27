@@ -79,9 +79,10 @@ async function collect(sourceId: string) {
     await sql.begin(async db => {
       if (await interrupted(db)) return;
       for (const item of items) {
-        const [signal] = await db<{ id: string }[]>`INSERT INTO studio_trend_signals (id, platform, external_id, title, url)
-          VALUES (${randomUUID()}, ${claim.platform}, ${item.externalId}, ${item.title}, ${item.url})
+        const [signal] = await db<{ id: string }[]>`INSERT INTO studio_trend_signals (id, platform, external_id, title, url,context_started_at)
+          VALUES (${randomUUID()}, ${claim.platform}, ${item.externalId}, ${item.title}, ${item.url},now())
           ON CONFLICT (platform, external_id) DO UPDATE SET title = EXCLUDED.title, url = EXCLUDED.url, last_seen_at = now(),
+            context_started_at = CASE WHEN studio_trend_signals.title = EXCLUDED.title AND studio_trend_signals.url = EXCLUDED.url THEN coalesce(studio_trend_signals.context_started_at,studio_trend_signals.last_seen_at) ELSE now() END,
             disposition = CASE WHEN studio_trend_signals.title = EXCLUDED.title AND studio_trend_signals.url = EXCLUDED.url THEN studio_trend_signals.disposition ELSE 'pending_relevance' END,
             relevance_key = CASE WHEN studio_trend_signals.title = EXCLUDED.title AND studio_trend_signals.url = EXCLUDED.url THEN studio_trend_signals.relevance_key ELSE NULL END RETURNING id`;
         await db`INSERT INTO studio_trend_observations (signal_id, rank, raw_heat, metrics)

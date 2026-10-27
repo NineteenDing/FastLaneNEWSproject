@@ -75,6 +75,7 @@ import { topicFreezeQueue, scheduleTopicBatches } from "./backend/topic-jobs.ts"
 import { topicAnalysisQueue, submitTopicAnalysis, topicMaterialAnalyses, scheduleTopicMaterialAnalyses } from "./backend/topic-material-analysis.ts";
 import { topicGenerationQueue, submitTopicGeneration, topicRecommendations, scheduleTopicGenerations } from "./backend/topic-directions.ts";
 import { topicReviewQueue, submitTopicReview, scheduleTopicReviews } from "./backend/topic-review.ts";
+import {topicGapReport,recoverTopicMaterial} from './backend/topic-gaps.ts';
 import { topicReview } from "./backend/topic-review-state.ts";
 import { topicFeedback, saveTopicFeedback } from "./backend/topic-feedback.ts";
 import { createTopicRuleVersion, topicRuleVersions } from "./backend/topic-rule-versions.ts";
@@ -284,6 +285,8 @@ export const createStudioServer = (resources: {
     app.put("/api/admin/studio/model-budget", adminHandler(async (req, _reply, admin) => saveModelBudgetSettings(req.body, actorOf(admin))));
     app.put("/api/admin/studio/model-operations", adminHandler(async (req, _reply, admin) => saveModelOperations(req.body, actorOf(admin))));
     app.get("/api/admin/studio/model-basic-connection", adminHandler(() => modelConnection("basic")));
+    app.get('/api/admin/studio/topic-batches/:id/gaps',adminHandler(req=>topicGapReport((req.params as {id:string}).id,req.query)));
+    app.post('/api/admin/studio/topic-batches/:id/recover-material',adminHandler((req,_reply,admin)=>recoverTopicMaterial((req.params as {id:string}).id,req.body,actorOf(admin))));
     app.put("/api/admin/studio/model-basic-connection", adminHandler(async (req, _reply, admin) => saveModelConnection(req.body, actorOf(admin), "basic")));
     app.put("/api/admin/studio/model-connection", adminHandler(async (req, _reply, admin) => saveModelConnection(req.body, actorOf(admin))));
     app.put("/api/admin/studio/platform-sessions/:platform", adminHandler(async (req, _reply, admin) =>

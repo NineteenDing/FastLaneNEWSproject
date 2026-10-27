@@ -11,7 +11,7 @@ export async function readNewsBridge(source: SourceRow) {
   if (!settings?.route || !origin) throw new UnsupportedConfig("请先配置RSSHub运行服务及来源路由");
   const url = new URL(settings.route, origin);
   url.searchParams.set("limit", String(settings.itemLimit));
-  const result = await fetchRss({ ...source, config: { feedUrl: url.href } }, { force: true, read: readRsshub });
+  const result = await fetchRss({ ...source, config: { feedUrl: url.href,summaryIsBody:settings.route.startsWith('/qwen/blog')||source.config.summaryIsBody===true } }, { force: true, read: readRsshub });
   if (result.candidates.length > settings.itemLimit) throw new Error("RSSHub未遵守处理上限，本次结果未接受，请检查服务");
   const excluded = settings.aiFilter ? result.candidates.filter(candidate => !AI_RE.test(`${candidate.title} ${candidate.excerpt ?? ""}`)) : [];
   const rejected = new Set(excluded);

@@ -36,8 +36,8 @@ export function browseWindowCondition(now: Date) {
     AND p.sort_at >= ${start} AND p.sort_at <= ${now}`;
 }
 
-/** The selected timeline normally covers 48h even though the all-news pool covers five days. */
-export function selectedWindowCondition(now: Date, hours = 48) {
+/** Admission remains permanent; the selected list browses five days, independently of heat decay. */
+export function selectedWindowCondition(now: Date, hours = 120) {
   const start = new Date(now.getTime() - hours * 3600000);
   return sql`coalesce(p.published_at, p.discovered_at) >= ${start} AND coalesce(p.published_at, p.discovered_at) <= ${now}
     AND p.sort_at >= ${start} AND p.sort_at <= ${now}`;

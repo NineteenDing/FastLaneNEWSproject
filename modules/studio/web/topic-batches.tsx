@@ -8,6 +8,7 @@ import type { CurrentTopicPreview, TopicBatch, TopicBatchPage, TopicColumns, Top
 import { TopicTabs } from "./topic-tabs";
 import { loadFrozenProcessing } from "./topic-processing.server";
 import { TopicCards } from "./topic-cards";
+import {TopicGapPanel} from './topic-gap-panel';
 
 const clock = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Hong_Kong", dateStyle: "medium", timeStyle: "short" });
 const date = (value: string) => clock.format(new Date(value));
@@ -76,7 +77,7 @@ export default function TopicBatches() {
   if (data.view === "snapshot" || data.view === "presented") return <>
     <header className="studio-page-header"><div><h1>{data.view === "presented" ? "当期选题" : "历史批次"}</h1><p>{range(data.batch)} · 香港时间</p></div><Link className="studio-button" to="/admin/studio/topics?view=history">查看历史</Link></header>
     <TopicTabs view={data.view === "presented" ? "current" : "history"} />
-    {data.view === "presented" && <p className="studio-caption">本期显示至 {date(data.presentation.displayUntil!)}。下一期正在后台收集，已收录 {num(data.presentation.collection.materialCount)} 条。</p>}
+    {data.view === "presented" && <p className="studio-caption">本期展示保留至 {date(data.presentation.displayUntil!)}（不是下期出刊时间）。下一期收集至 {date(data.presentation.collection.endsAt)}，已收录 {num(data.presentation.collection.materialCount)} 条。</p>}
     <FrozenTopics key={data.batch.id} data={data} />
   </>;
   return <>
@@ -96,14 +97,16 @@ export default function TopicBatches() {
 
 type FrozenView = Awaited<ReturnType<typeof loadFrozenProcessing>>;
 function FrozenTopics({ data }: { data: FrozenView }) {
-  const result = data.review.result ?? data.recommendations.result;
+  const provisional=!data.review.result&&!data.recommendations.result;
+  const result = data.review.result ?? data.recommendations.result??data.gaps.fallback?.result??null;
   return <>
     <section className="studio-batch-overview" aria-label="批次概览"><h2><BatchRange batch={data.batch} /></h2>
       <p>{num(data.batch.materialCount)} 条材料 · {adoptionLabel(data.batch)} · 已确认定稿 {data.batch.finalizedDraftCount ?? 0} 篇</p><p className="studio-caption">{recommendationLabel(data.batch)} · 版本 {data.batch.revision ?? 1}</p></section>
-    <TopicCards columns={data.batch.columns} result={result} references={data.review.result ? data.review.referenceMaterials : data.recommendations.referenceMaterials} batch={data.batch}
+    {provisional&&result&&<p className="studio-notice">正在完成截止版处理，先保留截止前的候选草案供阅读；此草案尚未通过正式二审。</p>}
+    <TopicCards columns={data.batch.columns} result={result} references={data.review.result ? data.review.referenceMaterials : data.recommendations.result?data.recommendations.referenceMaterials:data.gaps.fallback?.referenceMaterials??[]} batch={data.batch}
       reviewed={data.review.state === "completed" && !!data.review.result} pending={[data.recommendations.state, data.review.state].some(state => state === "queued" || state === "running")}
       materialPath={id => `/api/admin/studio/topic-batches/${data.batch.id}/materials/${encodeURIComponent(id)}`} />
-    
+    <TopicGapPanel batchId={data.batch.id} initial={data.gaps}/>
   </>;
 }
 

@@ -413,7 +413,7 @@ export interface SharedTopicSignals {
 }
 export type DirectionRankingContext = ({ policy: "studio-direction-ranking-v2"; asOf: string }
   | { policy: "studio-direction-ranking-v3-feedback"; asOf: string; feedback: TopicFeedbackSample[] }
-  | { policy: "studio-direction-ranking-v4-adoption"; asOf: string; feedback: TopicFeedbackSample[]; adopted: TopicAdoptionSample[] }) & { sharedSignals?: SharedTopicSignals; filterPolicy?: FilterPolicy };
+  | { policy: "studio-direction-ranking-v4-adoption"; asOf: string; feedback: TopicFeedbackSample[]; adopted: TopicAdoptionSample[] }) & { sharedSignals?: SharedTopicSignals; filterPolicy?: FilterPolicy; materialIds?:string[];materialAnalyses?:Record<string,TopicMaterialAnalysis> };
 export interface TopicDirection {
   id: string; columnId: string; eventKey: string;
   /** Heat and major/breakout exceptions belong to this core event, not to every cited background event. */
@@ -436,6 +436,11 @@ export interface TopicRecommendationResult {
   filterPolicy?: FilterPolicy;
   directions: TopicDirection[];
   assignments: Array<{ materialId: string; columnId: string; disposition: NonNullable<TopicMaterialAnalysis["disposition"]>; directionIds: string[]; reason: string }>;
+}
+export interface TopicGapReport {
+ total:number;completed:number;unanalysed:number;used:number;page:number;hasMore:boolean;
+ rows:Array<{materialId:string;title:string;state:string;reason:string;canFetchBody:boolean}>;
+ fallback?:{result:TopicRecommendationResult;referenceMaterials:TopicRecommendations['referenceMaterials']};
 }
 export interface TopicRecommendations {
   state: "not_generated" | "queued" | "running" | "draft" | "failed";

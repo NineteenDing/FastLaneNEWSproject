@@ -38,7 +38,7 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
       const rep=ordered[0]!, observation=observations.get(rep.eventId),heat=observation?.heatV2.observed;
       if(heat===null||heat===undefined||heat<=0)continue;
       const reporters=[...new Map(members.map(row=>[row.participant,row])).values()];
-      const platforms=(observation?.heatV2.channels.trends??[]).filter(row=>row.freshValue!==null);
+      const platforms=(observation?.heatV2.channels.trends??[]).filter(row=>row.value!==null);
       const channels=observation!.heatV2.channels;
       const dominant=[{key:"reports",value:channels.reports.value??-1},...channels.video.map(channel=>({key:"video:"+channel.platform,value:channel.value??-1})),
         ...channels.trends.map(channel=>({key:"trend:"+channel.board,value:channel.value??-1}))].sort((a,b)=>b.value-a.value||a.key.localeCompare(b.key))[0]!.key;
@@ -52,7 +52,7 @@ export async function calculatePublicHot(at=new Date(),storyIds?:number[]){
         trend:pct===null?"unknown":pct>.1?"up":pct<-.1?"down":"flat",trendPct:pct===null?null:Math.round(pct*1000)/10,
         badges:at.getTime()-Math.min(...members.map(row=>row.publishedAt.getTime()))<6*3600000?["new"]:[],
         participantCount:reporters.length+platforms.length,sourceCount:new Set(members.map(row=>row.sourceId)).size,
-        signalCount:platforms.length,reportCount:members.length,sourceNames:[...new Set(members.map(row=>row.sourceName))].slice(0,8),
+        signalCount:platforms.length,reportCount:members.length,sourceNames:[...new Set([...members.map(row=>row.sourceName),...platforms.map(row=>row.board)])].slice(0,8),
         latestAt:new Date(latest).toISOString(),firstReportAt:new Date(Math.min(...members.map(row=>row.publishedAt.getTime()))).toISOString(),
         representativeItemId:rep.id,representativeUrl:rep.url,representativeSource:rep.sourceName,observationKey:comparableKey,
         participants:[...reporters.slice(0,30).map(row=>({name:row.sourceName,kind:"editorial" as const,tier:row.tier})),

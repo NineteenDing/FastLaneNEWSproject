@@ -97,7 +97,7 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
   for (const event of events) {
     const members = rows.filter(row => row.eventId === event.id).map(row => ({ ...row,
       publishedAt: row.published.toISOString(), observedAt: row.observedAt ?? null, verifiedMeme: verifiedMemeEvidence(row.shared) }));
-    const qualified = members.some(member=>["direct","important_ai"].includes(member.shared.scope)&&member.shared.facts.length>0);
+    const qualified = members.some(member=>(["direct","important_ai"].includes(member.shared.scope)||member.shared.aiCentral===true)&&member.shared.facts.length>0);
     const baseHeat = eventHeatV2(members, asOf.toISOString(), editorial), trends = platformAttention(trendRows.get(event.id) ?? [], asOf.toISOString());
     const maxKnown = (a: number | null, b: number | null) => a === null ? b : b === null ? a : Math.max(a, b);
     const observed = maxKnown(baseHeat.observed, trends.observed), fresh = maxKnown(baseHeat.freshObserved, trends.freshObserved);
@@ -111,7 +111,7 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
     const rules = { ...policy.propagation, independentReports: editorial.breakout.reports, observedViews: editorial.breakout.views, independentAuthors: editorial.breakout.authors };
     const observation = observeEvent(members, qualified, asOf.toISOString(), rules, editorial.breakout.freshHours);
     if (qualified && trends.breakout) observation.breakout = { triggered: true, candidate: true,
-      reasons: [...observation.breakout.reasons, "independent_platform_trends"] };
+      reasons: [...observation.breakout.reasons, trends.topTen?'platform_top_ten':"independent_platform_trends"] };
     result.set(event.id, { event: { id: event.id, label: event.label, time: resolved, timeConflict: evidenceTimes.some(row => !!row.time) && resolved === null },
       ...observation, heat: eventHeat(members, asOf.toISOString(), policy.heat), heatV2 });
   }

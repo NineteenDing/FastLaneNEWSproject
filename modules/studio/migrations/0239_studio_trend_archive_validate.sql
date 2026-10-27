@@ -1,0 +1,1 @@
+ALTER TABLE studio_trend_news VALIDATE CONSTRAINT studio_trend_news_state_check;

@@ -1,13 +1,14 @@
 import { adminGet } from "../../../apps/web/app/lib/admin.server";
-import type { CurrentTopicPreview, TopicBatch, TopicBatchPage, TopicMaterialPage, TopicMaterialAnalysisPage, TopicRecommendations, TopicReview } from "../contracts";
+import type { CurrentTopicPreview, TopicBatch, TopicBatchPage, TopicMaterialPage, TopicMaterialAnalysisPage, TopicRecommendations, TopicReview,TopicGapReport } from "../contracts";
 export async function loadFrozenProcessing(request: Request, id: string, query: URLSearchParams) {
   const prefix = `/api/admin/studio/topic-batches/${encodeURIComponent(id)}`;
-  const [detail, materials, analysis, recommendations, review] = await Promise.all([
+  const [detail, materials, analysis, recommendations, review,gaps] = await Promise.all([
     adminGet<{ batch: TopicBatch }>(request, prefix), adminGet<TopicMaterialPage>(request, `${prefix}/materials?${query}`),
     adminGet<TopicMaterialAnalysisPage>(request, `${prefix}/analysis?${query}`),
     adminGet<TopicRecommendations>(request, `${prefix}/recommendations`), adminGet<TopicReview>(request, `${prefix}/review`),
+    adminGet<TopicGapReport>(request,`${prefix}/gaps`),
   ]);
-  return { ...detail, materials, analysis, recommendations, review };
+  return { ...detail, materials, analysis, recommendations, review,gaps };
 }
 
 export async function loadTopicProcessing(request: Request) {

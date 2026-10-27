@@ -40,6 +40,9 @@ export async function refreshTrendEventLinks() {
     }
     for (const member of matches) linked += (await db`INSERT INTO studio_trend_event_links (signal_id,signal_context_key,event_id,material_id,source_key,method)
       VALUES (${signal.id},${signal.key},${member.eventId},${member.materialId},${member.sourceKey},'exact_headline') ON CONFLICT(signal_id,event_id,material_id,source_key) DO UPDATE SET signal_context_key=EXCLUDED.signal_context_key,linked_at=EXCLUDED.linked_at WHERE studio_trend_event_links.signal_context_key IS DISTINCT FROM EXCLUDED.signal_context_key RETURNING signal_id`).length;
+    const representative=matches[0];
+    if(representative?.materialId.startsWith('news:'))await db`UPDATE studio_trend_news SET state='ready',article_id=${representative.materialId.slice(5)},error_code=NULL,updated_at=now()
+      WHERE signal_id=${signal.id} AND relevance_key=${signal.key} AND (state<>'ready' OR article_id IS DISTINCT FROM ${representative.materialId.slice(5)})`;
   }
   return { linked };
  });
@@ -50,7 +53,7 @@ export async function linkedTrendObservations(db: Db, eventIds: string[], asOf: 
   const result = new Map<string, PlatformAttentionRow[]>();
   if (!eventIds.length) return result;
   const rows = await db<Array<PlatformAttentionRow & { eventId: string }>>`WITH candidates AS (SELECT l.signal_id,l.linked_at,l.event_id AS "eventId", s.platform,
-    s.platform AS board, observation.rank, observation.observed_at::text AS "observedAt",
+    source.name AS board,s.url,observation.rank,history.best_rank AS "bestRank", observation.observed_at::text AS "observedAt",
     observation.observed_at >= latest.at AS active
     FROM studio_trend_event_links l JOIN studio_trend_signals s ON s.id = l.signal_id AND s.relevance_key=l.signal_context_key
     JOIN studio_trend_relevance relevance ON relevance.signal_id=s.id AND relevance.context_key=s.relevance_key AND relevance.state='completed' AND relevance.result->>'decision'='relevant'
@@ -58,14 +61,15 @@ export async function linkedTrendObservations(db: Db, eventIds: string[], asOf: 
     JOIN studio_history_index h ON h.material_id = l.material_id AND h.knowledge->>'sourceKey' = l.source_key
     JOIN articles a ON a.id = h.article_id JOIN sources material_source ON material_source.id = a.source_id
     LEFT JOIN editorial_overrides override ON override.article_id = a.id
-    JOIN LATERAL (SELECT o.rank,o.observed_at FROM studio_trend_observations o WHERE o.signal_id=s.id AND o.observed_at <= ${asOf}
+    JOIN LATERAL (SELECT o.rank,o.observed_at FROM studio_trend_observations o WHERE o.signal_id=s.id AND o.observed_at >= coalesce(s.context_started_at,s.last_seen_at) AND o.observed_at <= ${asOf}
       ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) observation ON true
+    JOIN LATERAL(SELECT min(o.rank) AS best_rank FROM studio_trend_observations o WHERE o.signal_id=s.id AND o.observed_at>=coalesce(s.context_started_at,s.last_seen_at) AND o.observed_at<=${asOf}) history ON true
     JOIN LATERAL (SELECT max(o.observed_at) AS at FROM studio_trend_observations o JOIN studio_trend_signals other ON other.id=o.signal_id
       WHERE other.platform=s.platform AND o.observed_at <= ${asOf}) latest ON true
     WHERE l.linked_at <= ${asOf} AND h.collected_at <= ${asOf}
       AND source.enabled AND NOT source.archived AND material_source.participation_mode='editorial' AND override.visibility IS DISTINCT FROM 'withdrawn'),
     representative AS (SELECT DISTINCT ON(signal_id) signal_id,"eventId" FROM candidates ORDER BY signal_id,linked_at,"eventId")
-    SELECT c."eventId",c.platform,c.board,c.rank,c."observedAt",c.active FROM candidates c JOIN representative r
+    SELECT c."eventId",c.platform,c.board,c.url,c.rank,c."bestRank",c."observedAt",c.active FROM candidates c JOIN representative r
       ON r.signal_id=c.signal_id AND r."eventId"=c."eventId" WHERE c."eventId"=ANY(${eventIds}::uuid[])`;
   for (const row of rows) result.set(row.eventId, [...(result.get(row.eventId) ?? []), row]);
   return result;

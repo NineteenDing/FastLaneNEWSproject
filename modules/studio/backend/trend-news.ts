@@ -98,7 +98,7 @@ export const trendNewsQueue=defineQueue<Job>({name:"studio.trends.news",options:
       });
     }catch(error){
       if(error instanceof QueueDeferred)throw error;
-      await sql`UPDATE studio_trend_news SET state='awaiting_content',error_code='awaiting_public_original',updated_at=now()
+      await sql`UPDATE studio_trend_news SET state='archived',error_code='title_archived_without_body',updated_at=now()
         WHERE signal_id=${job.signalId} AND relevance_key=${job.key} AND run_token=${job.token}`;
     }
   }},

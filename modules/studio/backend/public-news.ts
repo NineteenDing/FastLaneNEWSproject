@@ -79,7 +79,11 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     const archived = !!record.publishedAt && now.getTime()-record.publishedAt.getTime()>120*3600000
       && previous?.source_key===record.sourceKey && (previous.decision.allowed || !!previous.selected_ready_at)
       && scoreMaterialV2(record,record.eventId ? events.get(record.eventId) : undefined,record.publishedAt.toISOString(),policy).eligiblePublic===true;
-    const allowed = (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
+    // Qualification is an admission record, not a moving heat ranking. Corrections with a NEW source
+    // version still require approval; explicit withdrawals/source isolation remain enforced by publish/read guards.
+    const retained = previous?.source_key===record.sourceKey && previous.decision.allowed===true && !record.private
+      && source?.participation_mode==='editorial';
+    const allowed = retained || (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
     const images = [...(source?.media ?? []), ...(source?.x_post?.media ?? []), { url: source?.x_post?.avatarUrl }]
       .flatMap(media => [media.url, media.poster]).filter(value => typeof value === "string" && value.trim());
     const fulltextImages: string[] = [];
@@ -98,12 +102,13 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     const reasonLabels: Record<string, string> = { model_release: "正文确认的模型发布", direct_all: "符合AI影视公开范围", direct_selected: "符合AI影视公开与精选资格",
       major_event: "已核实重大事件", verified_breakout: "已确认相关出圈", general_ai_selected: "通用AI达到精选资格",
       market_reference: "非AI影视严格例外", excluded: "未通过公开资格", pending: "待核验", private: "内部材料" };
-    const title = record.analysis?.shared?.titleZh ?? await savedNewsTitle(db, record.title) ?? record.title;
-    const decision: PublicNewsDecision = { allowed, title, summary: publicSummary.text,
-      reason: [reasonLabels[score.route ?? "pending"] ?? "待核验", ...(score.summaryState === "ok" ? [] : ["摘要待完成"]),
+    const title = record.analysis?.shared?.titleZh ?? (retained?previous!.decision.title:null) ?? await savedNewsTitle(db, record.title) ?? record.title;
+    const selected=allowed && (score.eligibleSelected===true || retained && (previous!.decision.selected || !!previous!.selected_ready_at));
+    const decision: PublicNewsDecision = { allowed, title, summary: publicSummary.text??(retained?previous!.decision.summary:null),
+      reason: retained&&previous!.decision.selected?previous!.decision.reason:[reasonLabels[score.route ?? "pending"] ?? "待核验", ...(score.summaryState === "ok" ? [] : ["摘要待完成"]),
         ...(publicSummary.fallback ? ["摘要使用原文事实回退"] : [])].join("；"),
       category: policy.columnMapping[record.analysis?.columnId ?? ""] ?? null,
-      score: score.public.total, selected: allowed && score.eligibleSelected === true, images: normalize(images), fulltextImages: normalize(fulltextImages),
+      score: retained?previous!.decision.score:score.public.total, selected, images: normalize(images), fulltextImages: normalize(fulltextImages),
       event: allowed && record.eventId && rootId ? { id: record.eventId, rootId, title,
         occurredAt: record.analysis?.shared?.event?.time?.at ?? null } : null };
     await db`INSERT INTO studio_public_news (article_id, source_key, decision, policy_version, semantics_key, updated_at)

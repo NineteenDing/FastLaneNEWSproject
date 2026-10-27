@@ -15,7 +15,12 @@ export function createTopicFreezeQueue(host = createHostResourceMonitor(), disk 
     options: { policy: "short", retryLimit: 3, retryDelay: 60, expireInSeconds: 600 },
     worker: { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2, groupConcurrency: 1 },
     admission: () => { gate = admit(); return gate; },
-    async run() { return freezeNextTopicBatch(() => gate?.canStart() ?? false); },
+    async run() {
+      const result=await freezeNextTopicBatch(() => gate?.canStart() ?? false);
+      if('batch' in result && result.batch && await (await import('./model-operations.ts')).modelWorkAllowed())
+        await (await import('./topic-directions.ts')).submitTopicGeneration(result.batch.id,'system:topic-cutoff');
+      return result;
+    },
   });
 }
 

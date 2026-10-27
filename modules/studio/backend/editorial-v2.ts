@@ -33,7 +33,7 @@ export const DEFAULT_EDITORIAL_V2: EditorialPolicyV2 = {
     validBackfillValue: 15,
     unknownDecision: 40,
   },
-  windows: { allHours: 120, selectedHours: 48, hotHours: 48, dailyHours: 24, lateHours: 168, policyHours: 720 },
+  windows: { allHours: 120, selectedHours: 120, hotHours: 48, dailyHours: 24, lateHours: 168, policyHours: 720 },
   breakout: { reports: 10, views: 1000000, authors: 3, freshHours: 6 },
   daily: { headlineBandMax: 5, headlineBandRatio: 0.10, volumeRatio: 0.8, emergencyHeat: 70 },
 };
