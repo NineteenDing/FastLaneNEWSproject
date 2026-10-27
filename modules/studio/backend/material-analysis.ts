@@ -1,3 +1,4 @@
+import { groundBodyQuoteTypography } from "./material-quote-grounding.ts";
 import { sql } from "@aihot/backend/db";
 import { z } from "zod";
 import { sha256, stableJson } from "@aihot/backend/lib/ids";
@@ -158,7 +159,7 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
       (evidence.suggestedColumnIds?.length ? "suggestedColumnIds是用户指定的补充候选栏目，优先评估匹配性；确实不适合时在reason说明，不降低事实和受众门槛。" : "") + historyEntityInstructions + (insightPolicy ? materialInsightInstructions : "") +
       (context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialInstructions : ""),
     user,
-    schema: assessment.extend({ entities: historyEntitySchema.optional(), insights: insightPolicy ? materialInsightsSchema.optional() : z.never().optional(),
+    schema: z.preprocess(value => groundBodyQuoteTypography(value, evidence.body), assessment.extend({ entities: historyEntitySchema.optional(), insights: insightPolicy ? materialInsightsSchema.optional() : z.never().optional(),
       ...rootSharedExtras,
       shared: context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialSchema.optional() : z.never().optional() }).superRefine((value, ctx) => {
       if (!columns.some(column => column.enabled && column.id === value.columnId))
@@ -177,7 +178,7 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
       if (value.insights?.impacts.length && (!["ok", "collected", "transcribed"].includes(evidence.bodyState)
         || value.insights.impacts.some(impact => impact.evidenceQuotes.some(quote => !evidence.body.includes(quote)))))
         ctx.addIssue({ code: "custom", message: "影响判断必须有完整正文或转写中的逐字依据", path: ["insights", "impacts"] });
-    }), maxTokens: 6000,
+    })), maxTokens: 6000,
   });
   let data = output.data.entities
     ? { ...output.data, entities: output.data.entities.filter(entity => entityGrounded(entity, evidence)) }
