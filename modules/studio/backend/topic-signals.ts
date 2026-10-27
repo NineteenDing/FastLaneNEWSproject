@@ -1,4 +1,4 @@
-import { verifiedModelLaunch, editorialEvidenceScope } from "./editorial-evidence.ts";
+import { verifiedModelLaunch, editorialEvidenceScope,verifiedAttentionBreakout } from "./editorial-evidence.ts";
 import { verifiedMemeEvidence } from "./shared-material.ts";
 import type { EditorialPolicyV2, EditorialScopeV2, EventPropagationRules, FilterPolicy, SharedTopicSignals, TopicBatchMaterial, TopicMaterialAnalysis } from "../contracts.ts";
 import { defaultEventPropagationRules, eventHeat, eventHeatV2, observeEvent, resolveEventTime, type PropagationRow } from "./event-propagation.ts";
@@ -40,7 +40,7 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
         kind: material.kind, work: material.source.work?.id ?? material.id, views: metrics?.views ?? null, publishedAt: material.publishedAt!,
         observedAt: observed, hasMemeEvidence: analysis!.shared!.memeEvidence.length > 0, verifiedMeme: verifiedMemeEvidence(analysis!.shared) };
     });
-    const qualified = related.some(row => evidenceAvailable(row) && ["direct", "important_ai"].includes(row.analysis!.shared!.scope));
+    const qualified = related.some(row => evidenceAvailable(row) && (["direct", "important_ai"].includes(row.analysis!.shared!.scope)||row.analysis!.shared!.aiCentral===true));
     const baseHeat = eventHeatV2(rows, asOf, editorial);
     const trends=platformAttention(related.flatMap(row=>(row.material.trends??[]).flatMap(trend=> {
       const observation=trend.observations.filter(value=>Date.parse(value.observedAt)<=cutoff).sort((a,b)=>Date.parse(b.observedAt)-Date.parse(a.observedAt))[0];
@@ -51,7 +51,8 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
       observed:maximum(baseHeat.observed,trends.observed),freshObserved:maximum(baseHeat.freshObserved,trends.freshObserved),
       channels:{...baseHeat.channels,trends:trends.channels},missingReasons:baseHeat.missingReasons},editorial);
     const breakout=observeEvent(rows,qualified,asOf,rules,editorial.breakout.freshHours);
-    if(qualified&&trends.breakout)breakout.breakout={triggered:true,candidate:true,reasons:[...breakout.breakout.reasons,"independent_platform_trends"]};
+    const strongAttention=related.some(row=>evidenceAvailable(row)&&verifiedAttentionBreakout(row.analysis!.shared!,trends.observed));
+    if(qualified&&(trends.breakout||strongAttention))breakout.breakout={triggered:true,candidate:true,reasons:[...breakout.breakout.reasons,trends.topTen?'platform_top_ten':trends.breakout?'independent_platform_trends':'strong_platform_attention']};
     const evidenceTimes=related.filter(evidenceAvailable).map(row=>({reportingKind:row.analysis!.shared!.reportingKind,time:row.analysis!.shared!.event?.time}));
     const resolvedTime=resolveEventTime(evidenceTimes),timeConflict=evidenceTimes.some(row=>!!row.time)&&resolvedTime===null;
     events.push({ id, label: related[0]!.analysis!.shared!.event?.label ?? related[0]!.material.title,
