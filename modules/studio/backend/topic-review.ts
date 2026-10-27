@@ -204,18 +204,17 @@ async function review({ batchId }: Job) {
       });
       let revisionInput: object = { task, ...reviewBatch, recommendation: draftForModel(current), opinions: allOpinions, rounds, ...provenance, materials: allRows.map(row => ({ material: modelMaterial(row.material) })) };
       if (JSON.stringify(revisionInput).length > maxInputChars) {
-        const [completedRevision]=await sql`SELECT 1 FROM studio_topic_review_steps WHERE batch_id=${batchId} AND step=${task}`;
-        if(!completedRevision){
+        const [completedRevision]=await sql<{input_hash:string}[]>`SELECT input_hash FROM studio_topic_review_steps WHERE batch_id=${batchId} AND step=${task}`;
           // Every body has already been audited in this round. Revise from those opinions and
           // the frozen, quoted fact ledger; do not ask each partial packet to adjudicate ALL opinions.
           const savedResolutions=await sql<{result:{resolutions?:unknown[]}}[]>`SELECT result FROM studio_topic_review_steps
             WHERE batch_id=${batchId} AND left(step,length(${task+':evidence:'}))=${task+':evidence:'} ORDER BY step`;
-          revisionInput={task,...reviewBatch,recommendation:draftForModel(current),opinions:allOpinions,
+          const compactRevision={task,...reviewBatch,recommendation:draftForModel(current),opinions:allOpinions,
             rounds:rounds.map(({round,passed,summary})=>({round,passed,summary})),...provenance,
             factEvidence:factsForModel(ranking?.context,rows.map(row=>row.material.id)),
             evidenceResolutions:savedResolutions.flatMap(row=>row.result.resolutions??[]),references:current.directions.flatMap(direction=>direction.references),
             evidenceUse:'本轮完整正文已由各审核包逐片核验。这里复用冻结事实引文和已有引用，不将审核意见当成新事实；未核实争议只能删除或降级，不得补造证据。所有最终引用必须逐字取自提供的事实引文或既有引用。'};
-        }else{
+        if(!completedRevision||completedRevision.input_hash===sha256(JSON.stringify(compactRevision))){revisionInput=compactRevision;}else{
         const resolutionSchema = z.object({ checkedParts: z.array(text), resolutions: z.array(z.object({ opinionId: text,
           decision: z.enum(["accept", "partial", "reject"]), reason: text,
           quotes: z.array(z.object({ materialId: text, quote: text }).strict()),
