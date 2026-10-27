@@ -17,6 +17,14 @@ export function newsMaterialTrendsSql(db: Tx, articleId: ReturnType<Tx>, asOf?: 
     FROM studio_trend_event_links l JOIN studio_trend_signals s ON s.id=l.signal_id AND s.relevance_key=l.signal_context_key
     JOIN studio_trend_relevance relevance ON relevance.signal_id=s.id AND relevance.context_key=s.relevance_key AND relevance.state='completed' AND relevance.result->>'decision'='relevant'
     JOIN studio_history_index h ON h.material_id=l.material_id AND h.knowledge->>'sourceKey'=l.source_key
+    JOIN LATERAL(SELECT candidate.event_id FROM studio_trend_event_links candidate
+      JOIN studio_history_index indexed ON indexed.material_id=candidate.material_id AND indexed.knowledge->>'sourceKey'=candidate.source_key
+      JOIN articles article ON article.id=indexed.article_id JOIN sources material_source ON material_source.id=article.source_id
+      LEFT JOIN editorial_overrides override ON override.article_id=article.id
+      WHERE candidate.signal_id=s.id AND candidate.signal_context_key=s.relevance_key
+        AND candidate.linked_at<=${at} AND indexed.collected_at<=${at}
+        AND material_source.participation_mode='editorial' AND override.visibility IS DISTINCT FROM 'withdrawn'
+      ORDER BY candidate.linked_at,candidate.event_id LIMIT 1) representative ON representative.event_id=l.event_id
     JOIN studio_trend_boards b ON b.platform=s.platform JOIN sources source ON source.id=b.source_id
     JOIN LATERAL(SELECT * FROM studio_trend_observations o WHERE o.signal_id=s.id
       AND o.observed_at>=coalesce(s.context_started_at,s.last_seen_at) AND o.observed_at<=${at}
