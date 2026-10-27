@@ -291,7 +291,8 @@ function startAdmittedQueue(boss: PgBoss, queue: ModuleQueue): () => Promise<voi
                 // Adapt pg-boss 12.34's internal restoreJobs shape here in its engine Adapter.
                 // Public cancel/resume leaves started_on set, which spends a retry on re-fetch.
                 // Reset only this active claim; retain its id, payload and prior failure count.
-                await sql`UPDATE pgboss.job SET state = 'created', started_on = NULL, heartbeat_on = NULL
+                  await sql`UPDATE pgboss.job SET state = 'created', started_on = NULL, heartbeat_on = NULL,
+                    start_after = greatest(start_after, now() + interval '30 seconds')
                   WHERE name = ${queue.name} AND id = ${job.id} AND state = 'active'`;
               } else await boss.fail(queue.name, job.id, { error: logError(error) });
             }
