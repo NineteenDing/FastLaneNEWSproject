@@ -18,7 +18,7 @@ import { indexAnalyzedHistoryEntities } from "./history-index.ts";
 import { assessment, materialAssessmentResult } from "./material-assessment.ts";
 import { analyzeMaterialEvidence, materialAnalysisCachePolicy, legacyMaterialAnalysisCachePolicy } from "./material-analysis.ts";
 import { materialInsightPolicy } from "./material-insights.ts";
-import { analyzeLiveMaterial, scheduleLiveMaterialAnalyses, liveMaterialTakeover, type LiveAnalysisJob } from "./live-material-analysis.ts";
+import { analyzeLiveMaterial, scheduleLiveMaterialAnalyses, liveMaterialTakeover, completedLiveMaterialAnalysis, type LiveAnalysisJob } from "./live-material-analysis.ts";
 import { batchEvidence } from "./topic-evidence.ts";
 import { scheduleCurrentMaterialClassifications, analyzeCurrentMaterialClassification, type ClassificationJob } from "./current-material-classification.ts";
 import type { TopicBatchMaterial, TopicColumn, TopicMaterialAnalysis, TopicMaterialAnalysisPage } from "../contracts.ts";
@@ -140,6 +140,13 @@ async function analyze(job: BatchJob) {
   try {
     if ([materialAnalysisCachePolicy, legacyMaterialAnalysisCachePolicy].includes(job.cachePolicy ?? "") && extractEntities) {
       const context = { ...row, requireChineseTitle: true, ...(job.insightPolicy ? { insightPolicy: job.insightPolicy } : {}), ...(job.cachePolicy === materialAnalysisCachePolicy ? { sharedPolicy: materialAnalysisCachePolicy } : {}) };
+      const completed = await completedLiveMaterialAnalysis(context);
+      if (completed) {
+        await sql`UPDATE studio_topic_material_analyses SET state = 'completed', result = ${sql.json(completed.result)},
+          receipt_id = ${completed.receiptId}, error = NULL, updated_at = now()
+          WHERE batch_id = ${job.batchId} AND material_id = ${job.materialId} AND result IS NULL`;
+        return;
+      }
       const identity = await materialAnalysisModelIdentity();
       const takeover = await sql.begin(db => liveMaterialTakeover(db, context, identity));
       if (takeover === "waiting") throw new QueueDeferred("采集中同版分析仍在进行，等待原任务完成");

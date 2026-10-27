@@ -57,9 +57,10 @@ function open(value: string, profile: ModelProfile) {
 }
 async function overview(row?: Row, db: Db = sql, profile: ModelProfile = "creative"): Promise<ModelConnection> {
   const value = row ? flashConnection(row.value, profile) : undefined;
+  const environmentConfigured = !row && profile === "creative" && !!credential("models", "LLM_BASE_URL") && !!credential("models", "LLM_API_KEY");
   let state: ModelConnection["state"] = row?.value.sealedKey ? "saved" : "missing";
   try { if (row?.value.sealedKey) open(row.value.sealedKey, profile); } catch { state = "unreadable"; }
-  return { version: row?.value.version ?? 0, baseUrl: row?.value.baseUrl ?? "https://api.deepseek.com/v1",
+  return { version: row?.value.version ?? 0, environmentConfigured, baseUrl: row?.value.baseUrl ?? (environmentConfigured ? credential("models", "LLM_BASE_URL")! : "https://api.deepseek.com/v1"),
     analysisModel: value?.analysisModel ?? (profile === "basic" ? "" : STUDIO_MODEL), qualityModel: value?.qualityModel ?? STUDIO_MODEL, state, verified: false,
     visionModel: value?.visionModel ?? null, visionPrice: value?.visionPrice ?? null,
     runtimeEnabled: await modelWorkAllowed(db), updatedAt: row?.updated_at.toISOString() ?? null,

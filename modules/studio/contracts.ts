@@ -758,6 +758,7 @@ export interface StudioBackupStatus { configured: boolean; externalDeclared: boo
   last: { id: string; at: string; bytes: number; files: number; externalDeclared: boolean } | null; error: string | null }
 
 export interface ModelConnection {
+  environmentConfigured?: boolean;
   visionModel?: string | null;
   visionPrice?: { inputPerMillion: number; outputPerMillion: number } | null;
   version: number;

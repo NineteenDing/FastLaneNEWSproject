@@ -51,7 +51,7 @@ function ConnectionForm({ connection, basic = false }: { connection: ModelConnec
     <p className="studio-notice">{basic ? "初筛、事实与摘要、分类、新闻及榜单翻译、日报文字编排。可单独设置兼容API的模型、地址、Key和单价。" : "正式选题综合、候选方向、二审与裁决、口播稿及风格学习，保留现有DeepSeek连接。"}</p>
     {basic && connection.version === 0 && <p className="studio-caption">基础API尚未配置：为保持新闻处理连续，暂用现有创作API；保存后切换，清除已配置Key会暂停基础调用，不自动付费回退。</p>}
     <p className="studio-caption">保存连接不会启用任务，也不会发送测试请求。</p>
-    <p className="studio-caption">{connection.state === "saved" ? "API Key已保存，仅供服务器使用；连接是否可用以任务实际结果为准。" : connection.state === "unreadable" ? "API Key无法解密，请重新填写后保存。" : "尚未保存API Key。"}</p>
+    <p className="studio-caption">{connection.environmentConfigured ? "正在使用服务器运行配置中的既有连接与Key；网页尚未另存连接。" : connection.state === "saved" ? "API Key已保存，仅供服务器使用；连接是否可用以任务实际结果为准。" : connection.state === "unreadable" ? "API Key无法解密，请重新填写后保存。" : "尚未保存API Key。"}</p>
     <form className="studio-model-form" onSubmit={save}>
       <div className="studio-wide"><label>API基础地址<input type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} maxLength={2048} required disabled={action.busy} aria-describedby={`${prefix}-url-help`} /></label>
         <p id={`${prefix}-url-help`} className="studio-caption">填写HTTPS地址，例如 https://api.deepseek.com/v1。不要填写 /chat/completions。</p></div>

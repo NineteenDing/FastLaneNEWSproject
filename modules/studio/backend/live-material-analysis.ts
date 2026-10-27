@@ -69,6 +69,29 @@ export async function liveMaterialTakeover(db: Db, context: MaterialAnalysisSnap
   return "failed";
 }
 
+/** Reuse paid understanding at cutoff, even after a provider change. Exact semantic input and policy must still match. */
+export async function completedLiveMaterialAnalysis(context: MaterialAnalysisSnapshot) {
+  const sourceKey = historyEvidenceKey(context.evidence);
+  const [live] = await sql<{ key: string; result: Awaited<ReturnType<typeof analyzeMaterialEvidence>>["result"]; receiptId: number; input: { analysisContext?: { modelIdentity?: string } } | null }[]>`
+    SELECT l.context_key AS key, l.result, l.receipt_id::int AS "receiptId", c.input
+    FROM studio_live_material_analyses l LEFT JOIN studio_shared_analysis_contexts c ON c.key = l.context_key
+    WHERE l.material_id = ${context.evidence.id} AND l.source_key = ${sourceKey}
+      AND l.state = 'completed' AND l.result IS NOT NULL AND l.receipt_id IS NOT NULL`;
+  if (!live || context.sharedPolicy !== materialAnalysisCachePolicy) return null;
+  // Column-only rematches keep the original understanding but need not create a shared-context row.
+  // Recover bounded candidate identities; none is trusted until the ENTIRE target hash matches.
+  const candidates = live.input ? [live.input] : (await sql<{ input: { analysisContext?: { modelIdentity?: string } } }[]>`
+    SELECT c.input FROM studio_material_analysis_cache cache JOIN studio_shared_analysis_contexts c ON c.key = cache.key
+    WHERE cache.source_key = ${sourceKey} ORDER BY cache.created_at DESC, cache.key LIMIT 12`).map(row => row.input);
+  // This recomputes the full content/audience/column/insight/policy hash using its ORIGINAL provider identity.
+  for (const candidate of candidates) {
+    const previousIdentity = candidate.analysisContext?.modelIdentity;
+    if (previousIdentity && (await prepareMaterialAnalysis(context, previousIdentity)).key === live.key)
+      return { result: live.result, receiptId: live.receiptId };
+  }
+  return null;
+}
+
 /** Bounded outbox drain: source writes never initialize queues or call a model. */
 export async function scheduleLiveMaterialAnalyses() {
   await ensureQueue(topicAnalysisQueue.name, topicAnalysisQueue.options);

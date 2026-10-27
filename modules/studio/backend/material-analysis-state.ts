@@ -7,20 +7,22 @@ export async function materialAnalysisJobsAvailable(db: Db) {
   return (await db<{ ready: boolean }[]>`SELECT to_regclass('pgboss.job') IS NOT NULL AS ready`)[0]!.ready;
 }
 export function materialAnalysisReadingsSql(db: Db, where: ReturnType<Db>, jobsAvailable: boolean, columns?: ColumnContext) {
+  // Ownership transfers at cutoff, but an empty batch placeholder is not a newer analysis.
+  const useBatch = db`a.material_id IS NOT NULL AND (a.result IS NOT NULL OR l.result IS NULL)`;
   const interrupted = db`candidate."rawState" IN ('queued', 'running') AND candidate.result IS NULL
     AND coalesce(job.state::text, 'missing') NOT IN ('created', 'retry', 'active')`;
   const base = db`SELECT candidate.*,
     CASE WHEN ${interrupted} THEN 'failed' ELSE coalesce(candidate."rawState", 'not_analyzed') END AS state,
     coalesce(candidate."rawError", CASE WHEN ${interrupted} THEN '分析任务已中断，可显式重试' END) AS error
     FROM (SELECT h.material_id AS "materialId", h.knowledge->>'sourceKey' AS "sourceKey",
-      CASE WHEN a.material_id IS NOT NULL THEN a.state ELSE l.state END AS "rawState",
-      CASE WHEN a.material_id IS NOT NULL THEN a.result ELSE l.result END AS result,
-      CASE WHEN a.material_id IS NOT NULL THEN a.receipt_id ELSE l.receipt_id END::int AS "receiptId",
-      CASE WHEN a.material_id IS NOT NULL THEN a.error ELSE l.error END AS "rawError",
-      CASE WHEN a.material_id IS NOT NULL THEN a.job_id ELSE l.job_id END AS "jobId",
-      CASE WHEN a.material_id IS NOT NULL THEN a.updated_at ELSE l.updated_at END AS "updatedAt",
+      CASE WHEN ${useBatch} THEN a.state ELSE l.state END AS "rawState",
+      CASE WHEN ${useBatch} THEN a.result ELSE l.result END AS result,
+      CASE WHEN ${useBatch} THEN a.receipt_id ELSE l.receipt_id END::int AS "receiptId",
+      CASE WHEN ${useBatch} THEN a.error ELSE l.error END AS "rawError",
+      CASE WHEN ${useBatch} THEN a.job_id ELSE l.job_id END AS "jobId",
+      CASE WHEN ${useBatch} THEN a.updated_at ELSE l.updated_at END AS "updatedAt",
       m.batch_id AS "batchId", coalesce(m.source_key = h.knowledge->>'sourceKey', false) AS "batchOwnsVersion",
-      CASE WHEN a.material_id IS NOT NULL THEN 'batch' WHEN l.material_id IS NOT NULL THEN 'live' ELSE NULL END AS origin
+      CASE WHEN ${useBatch} THEN 'batch' WHEN l.material_id IS NOT NULL THEN 'live' ELSE NULL END AS origin
     FROM studio_history_index h LEFT JOIN studio_live_material_analyses l
       ON l.material_id = h.material_id AND l.source_key = h.knowledge->>'sourceKey'
     LEFT JOIN studio_topic_batch_materials m ON m.material_id = h.material_id
