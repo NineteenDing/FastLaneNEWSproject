@@ -24,16 +24,17 @@ function SideLink({ item, dot }: { item: NavItem; dot: boolean }) {
   return (
     <Link
       to={item.to}
-      prefetch="intent"
+      prefetch={item.to.startsWith("https://") ? "none" : "intent"}
+      reloadDocument={item.to.startsWith("https://")}
       aria-current={isActive ? "page" : undefined}
-      className={`flex h-10 items-center gap-2.5 rounded-control px-2.5 text-[14px] transition-colors duration-150 ${
+      className={`flex ${item.multiline ? "min-h-10 py-2" : "h-10"} items-center gap-2.5 rounded-control px-2.5 text-[14px] transition-colors duration-150 ${
         isActive ? "bg-accent/10 font-semibold text-ink dark:bg-accent-soft" : "font-medium text-ink-3 hover:bg-bg-sunk hover:text-ink"
       }`}
     >
       <span className={`flex w-[22px] shrink-0 justify-center ${isActive ? "text-accent" : ""}`}>
         <Icon size={17} />
       </span>
-      <span className="min-w-0 truncate">{item.label}</span>
+      <span className={item.multiline ? "min-w-0 break-words leading-snug" : "min-w-0 truncate"}>{item.label}</span>
       {dot && item.changelog && <span className="ml-auto size-1.5 shrink-0 rounded-full bg-hot" aria-label="有新的更新" />}
     </Link>
   );

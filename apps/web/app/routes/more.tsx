@@ -54,7 +54,7 @@ function Group({ title, children }: { title?: string; children: ReactNode }) {
 function RowLink({ row, dot = false }: { row: Row; dot?: boolean }) {
   return (
     <li>
-      <Link viewTransition to={row.to} className="flex min-h-[52px] items-center gap-3 px-4 text-[16px] font-medium text-ink transition-colors active:bg-bg-sunk lg:hover:bg-bg-sunk">
+      <Link viewTransition reloadDocument={row.to.startsWith("https://")} to={row.to} className="flex min-h-[52px] items-center gap-3 px-4 text-[16px] font-medium text-ink transition-colors active:bg-bg-sunk lg:hover:bg-bg-sunk">
         <span className="text-ink-3">{row.icon}</span>
         <span className="flex flex-1 items-center gap-2">
           {row.label}
@@ -104,6 +104,7 @@ export default function MorePage() {
           ))}
         </Group>
         <Group title="关于">
+          <RowLink row={{ to: "https://app.fastlane.chat/", label: "fastlane漫剧工作台", icon: <IconGrid size={20} /> }} />
           <RowLink row={{ to: "/about", label: `关于 ${SITE.name}`, icon: <IconHeart size={20} /> }} />
           <RowLink row={{ to: "/changelog", label: "更新日志", icon: <IconSparkles size={20} /> }} dot={changelogDot} />
           <RowLink row={{ to: "/feedback", label: "意见反馈", icon: <IconMessage size={20} /> }} />

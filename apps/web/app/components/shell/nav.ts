@@ -15,6 +15,7 @@ export interface NavItem {
   end?: boolean;
   /** Shows the unread dot while the changelog has news. */
   changelog?: boolean;
+  multiline?: boolean;
 }
 
 const SECTIONS: Array<{ title: string; items: NavItem[] }> = [
@@ -33,6 +34,7 @@ const SECTIONS: Array<{ title: string; items: NavItem[] }> = [
     title: "更多",
     items: [
       { to: "/agent", label: "Agent 接入", icon: IconPlug },
+      { to: "https://app.fastlane.chat/", label: "fastlane漫剧工作台", icon: IconGrid, multiline: true },
       { to: "/about", label: "关于", icon: IconHeart },
       { to: "/changelog", label: "更新日志", icon: IconHistory, changelog: true },
       { to: "/feedback", label: "反馈", icon: IconMessage },

@@ -128,4 +128,7 @@ export const sharedMaterialInstructions = "本次为二期共享基础分析：�
   "publicSummary只写80至180个中文字符（硬上限300）的新闻事实及明确归因的原文观点，不写评分、推荐、相关性、选题、模型判断或“值得关注/潜在参考”；summaryFactIds指向支持摘要的shared.facts下标。" +
   "majorEvent仅在已核实的重大模型发布、约束性政策、重大事故、重大平台或行业变化时输出{kind,affectedGroups,realizedChange,evidenceFactIds,limitations}；普通融资、名人表态、预告、估值变化和普通小版本更新不是重大，否则null。primaryIntent为practice/models/news/cases/other，按文章主要问题给出。同时保留旧shared.scope字段。" +
   "外文新闻在本次同一轮理解中同步输出titleZh作为正式中文标题，保留专有名词，不杜撰原标题没有的事实。中文原标题可省略titleZh。" +
-  "memeMetrics仅在正文引文明确给出量化传播证据时输出{participants,platforms,sources,cases,originalParticipants,derivativeWorks,evidenceFactIds}，未知计0，不能把刷屏/爆火修辞换算人数。无量化证据输出null。";
+  "memeMetrics仅在正文引文明确给出量化传播证据时输出{participants,platforms,sources,cases,originalParticipants,derivativeWorks,evidenceFactIds}，未知计0，不能把刷屏/爆火修辞换算人数。无量化证据输出null。" +
+  "输出契约补充：shared只能放JSON顶层，与insights并列，不能放在insights里面。majorEvent可为null；非null时kind只允许major_model_release、binding_policy、major_incident、major_platform_change、major_industry_change、none，不能新增其他枚举；affectedGroups必须是字符串数组，evidenceFactIds必须是整数下标数组，limitations为字符串或null。无法适配类型时majorEvent=null，不改写为已核实重大事件。" +
+  "事实引句包括evidenceQuotes、facts.quotes、scopeQuotes与insights.impacts.evidenceQuotes，必须是material.body中的连续原文子串；insights.commentFocus.evidence.quote必须是对应material.comments评论中的连续原文子串并标记真实commentId；英文引句不得翻译成中文，不改引号、不缩写、不补省略号，不确定就引用较短但完整的原文。未知时间置null，不补年份。" +
+  "事实条目聚焦最多8项核心事实，每项引用1至3段简短原文；维度reason及其他理由保持简短单句。完整正文是输入依据，不需要逐段复述全文；必须在输出额度内返回一个完整闭合JSON对象。";

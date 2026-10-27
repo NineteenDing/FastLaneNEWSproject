@@ -70,7 +70,7 @@ export default function FilmBoards() {
         {board.platforms.filter(item => allItems.some(entry => entry.sourcePlatform === item.key)).map(item => <Link key={item.key} to={filterHref({ platform: item.key })}
           aria-current={platform === item.key ? "page" : undefined} className={`rounded-control border px-3 py-2 text-[13px] ${platform === item.key ? "border-accent bg-accent-soft font-semibold text-accent" : "border-line text-ink-3"}`}>{item.label}</Link>)}
       </nav>}
-      <p className="mt-3 text-[13px] leading-[1.8] text-ink-3">仅供分享学习使用，{board.sourceUrl ? <a href={board.sourceUrl} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-4">官方完整榜单请点击直达原站</a> : "官方完整榜单请点击直达原站"}。{board.id === "verticalcharts-52" ? "本页为第三方短剧榜，不是各平台官方榜的合并；VertiScore 不是播放量。" : ""}</p>
+      <p className="mt-3 text-[13px] leading-[1.8] text-ink-3">仅供分享学习使用，{board.sourceUrl ? <a href={board.sourceUrl} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-4">官方完整榜单请点击直达原站</a> : "官方完整榜单请点击直达原站"}。</p>
       {board.items.length > 0 && board.snapshotAt && <p className="mt-1 text-[12.5px] text-ink-3">{board.sourceUpdatedText ? `${board.sourceUpdatedText} · ` : ""}更新于 {fullDateTime(board.snapshotAt)}</p>}
       {!board.items.length ? <div className="py-14 text-center">
         <p className="text-[16px] text-ink">{allItems.length ? "该筛选在本站已取榜单中没有作品。" : "暂未接入榜单数据，请等待后续配置。"}</p>
