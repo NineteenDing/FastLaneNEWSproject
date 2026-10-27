@@ -13,6 +13,7 @@ import { createDiskResourceMonitor } from "./disk-resources.ts";
 import { createDatabaseResourceMonitor } from "./database-resources.ts";
 import { topicRecommendations, topicDraftSchema, scoreTopicDraft } from "./topic-directions.ts";
 import { modelMaterial } from "./model-material.ts";
+import {rankingForModel,draftForModel} from './topic-model-context.ts';
 import { frozenTopicHistory } from "./topic-history.ts";
 import { rankingRulesFor } from "./topic-ranking.ts";
 import { batchEvidence } from "./topic-evidence.ts";
@@ -134,7 +135,7 @@ async function review({ batchId }: Job) {
   const [batch] = await sql<{ audience: string; columns: TopicColumn[] }[]>`SELECT audience, columns FROM studio_topic_batches WHERE id = ${batchId}`;
   if (!batch) throw new Error("冻结批次不存在");
   const [ranking] = await sql<{ context: DirectionRankingContext | null }[]>`SELECT ranking_context AS context FROM studio_topic_recommendations WHERE batch_id = ${batchId}`;
-  const reviewBatch = { ...batch, ...(ranking?.context ? { rankingContext: ranking.context, rankingRules: rankingRulesFor(ranking.context) } : {}) };
+  const reviewBatch = { ...batch, ...(ranking?.context ? { rankingContext: rankingForModel(ranking.context), rankingRules: rankingRulesFor(ranking.context) } : {}) };
   const rows = await sql<{ material: TopicBatchMaterial }[]>`SELECT evidence AS material FROM (${batchEvidence(sql, batchId)}) materials
     WHERE ${!ranking?.context?.materialIds} OR material_id=ANY(${ranking?.context?.materialIds??[]}::text[]) ORDER BY collected_at, material_id`;
   const background = (await frozenTopicHistory(sql, batchId))?.items.map(item => item.material) ?? [];
@@ -149,7 +150,7 @@ async function review({ batchId }: Job) {
       new Map(ranking?.context?.sharedSignals?.candidates.map(candidate => [candidate.materialId, candidate.eventId]))), decisions, summary: text }).strict();
     let current = recommendation.result, finalDecisions: TopicReview["decisions"] = [], finalSummary = "";
     for (const round of [1, 2] as const) {
-      const context = { task: "review_packet", round, ...reviewBatch, recommendation: current,
+      const context = { task: "review_packet", round, ...reviewBatch, recommendation: draftForModel(current),
         materialIds: allRows.map(row => row.material.id), ...provenance };
       const packets = materialPackets(allRows.map(row => row.material), context);
       const opinions: TopicReview["rounds"][number]["opinions"] = [];
@@ -173,7 +174,7 @@ async function review({ batchId }: Job) {
         if (value.passed && opinions.some(item => item.severity !== "minor"))
           ctx.addIssue({ code: "custom", message: "存在待处理的重大问题不能判为通过", path: ["passed"] });
       });
-      const summary = await step(batchId, `round:${round}:summary`, { task: "review_summary", round, ...reviewBatch, recommendation: current,
+      const summary = await step(batchId, `round:${round}:summary`, { task: "review_summary", round, ...reviewBatch, recommendation: draftForModel(current),
         opinions }, summaryValidation, "汇总本轮全部材料包的意见，保留全部意见编号。存在blocking或major未处理问题不能声称通过；给出简短说明。");
       rounds.push({ round, passed: summary.passed, summary: summary.summary, opinions });
       finalSummary = summary.summary;
@@ -184,13 +185,13 @@ async function review({ batchId }: Job) {
         if (!coversExactly(value.decisions.map(item => item.opinionId), allOpinions.map(item => item.id)))
           ctx.addIssue({ code: "custom", message: "必须逐项裁决全部审核意见，不能遗漏或虚构意见", path: ["decisions"] });
       });
-      let revisionInput: object = { task, ...reviewBatch, recommendation: current, opinions: allOpinions, rounds, ...provenance, materials: allRows.map(row => ({ material: modelMaterial(row.material) })) };
+      let revisionInput: object = { task, ...reviewBatch, recommendation: draftForModel(current), opinions: allOpinions, rounds, ...provenance, materials: allRows.map(row => ({ material: modelMaterial(row.material) })) };
       if (JSON.stringify(revisionInput).length > maxInputChars) {
         const resolutionSchema = z.object({ checkedParts: z.array(text), resolutions: z.array(z.object({ opinionId: text,
           decision: z.enum(["accept", "partial", "reject"]), reason: text,
           quotes: z.array(z.object({ materialId: text, quote: text }).strict()),
         }).strict()) }).strict();
-        const resolutionContext = { task: "resolve_opinions", ...reviewBatch, recommendation: current, opinions: allOpinions, ...provenance };
+        const resolutionContext = { task: "resolve_opinions", ...reviewBatch, recommendation: draftForModel(current), opinions: allOpinions, ...provenance };
         const relevant = allRows.filter(row => allOpinions.some(item => !item.materialIds.length || item.materialIds.includes(row.material.id)));
         const evidenceResolutions: z.infer<typeof resolutionSchema>["resolutions"] = [];
         for (const [index, parts] of materialPackets(relevant.map(row => row.material), resolutionContext).entries()) {
@@ -206,7 +207,7 @@ async function review({ batchId }: Job) {
             "仅针对已提出的意见核对原始材料并给出采纳建议与实际引文；这不是新一轮审核，不能新增意见。局部片段不充分时标为部分采纳并说明不足，不把未出现当作不存在，不能虚构引文。最终裁决会汇总各片段建议。");
           evidenceResolutions.push(...resolution.resolutions);
         }
-        revisionInput = { task, ...reviewBatch, recommendation: current, opinions: allOpinions, rounds, evidenceResolutions, ...provenance,
+        revisionInput = { task, ...reviewBatch, recommendation: draftForModel(current), opinions: allOpinions, rounds, evidenceResolutions, ...provenance,
           references: current.directions.flatMap(direction => direction.references) };
       }
       const revised = await step(batchId, task, revisionInput, revisionValidation, round === 1 ? "依据本轮意见修订，逐条判断采纳并保留理由。" :

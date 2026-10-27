@@ -25,6 +25,7 @@ import { scoreConfiguredDirection } from "./filter-scoring.ts";
 import {usableForTopic} from './topic-cutoff-policy.ts';
 import {historyEvidenceKey} from './history-entities.ts';
 import {columnSemanticsKey} from './column-matching.ts';
+import {rankingForModel} from './topic-model-context.ts';
 import type { DirectionRankingContext, TopicBatchMaterial, TopicColumn, TopicMaterialAnalysis, TopicRecommendationResult, TopicRecommendations, TopicHistorySnapshot } from "../contracts.ts";
 
 const text = z.string().trim().min(1).max(600), score = z.number().min(0).max(100).nullable();
@@ -207,7 +208,7 @@ export async function synthesizeTopicDirections(batch: { columns: TopicColumn[];
         ? { version: "editorial-v2:" + rankingContext.filterPolicy.version, weights: rankingContext.filterPolicy.editorial.internal.weights,
           thresholds: rankingContext.filterPolicy.editorial.internal.normal } : rankingContext?.filterPolicy
         ? { version: "studio-filter-internal-v1:" + rankingContext.filterPolicy.version, weights: rankingContext.filterPolicy.internal.weights } : materialScoringPolicy,
-        ...(rankingContext ? { rankingContext, rankingRules: rankingRulesFor(rankingContext) } : {}), materials: materials.map(row => ({ ...row, material: modelMaterial(row.material) })),
+        ...(rankingContext ? { rankingContext:rankingForModel(rankingContext), rankingRules: rankingRulesFor(rankingContext) } : {}), materials: materials.map(row => ({ ...row, material: modelMaterial(row.material) })),
         ...(background ? { background: { ...background, items: background.items.map(item => ({ ...item, material: modelMaterial(item.material) })) } } : {}) }),
       schema: topicDraftSchema(batch.columns, materials, background?.items.map(item => item.material),
         rankingContext?.sharedSignals?.policy === "shared-topic-v2" ? rankingContext.sharedSignals.events.map(event => event.id) : undefined,
