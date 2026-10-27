@@ -88,7 +88,7 @@ export function intelligenceEvidence(db: Tx, window: { earliestStart: Date; star
     LEFT JOIN studio_media_transcripts transcript ON transcript.post_id = p.id AND transcript.source_fingerprint = p.content_fingerprint
     LEFT JOIN LATERAL (SELECT i.* FROM studio_news_image_sets i WHERE i.article_id = a.id AND i.revision = a.revision ORDER BY i.updated_at DESC LIMIT 1) images ON true
     LEFT JOIN LATERAL (${materialTrendsSql(db, db`p.id`)}) trends ON p.id IS NOT NULL
-    LEFT JOIN LATERAL (${newsMaterialTrendsSql(db,db`a.id`)}) news_trends ON a.id IS NOT NULL
+    LEFT JOIN LATERAL (${newsMaterialTrendsSql(db,db`a.id`,window.endsAt)}) news_trends ON a.id IS NOT NULL
     WHERE ${selectedOutsideWindow && ids?.length ? db`true` : db`m."collectedAt" >= ${window.earliestStart} AND m."collectedAt" < ${window.endsAt}`}`;
 }
 

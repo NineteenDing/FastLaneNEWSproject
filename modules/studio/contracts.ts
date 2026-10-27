@@ -17,7 +17,7 @@ export interface TrendSignal {
 export interface MaterialTrend {
   id: string; platform: TrendPlatform; title: string; url: string; method: "direct_content" | "search_representative";
   active?: boolean;
-  observations: TrendSignal["observations"];
+  observations: Array<TrendSignal["observations"][number] & { bestRank?: number }>;
 }
 export interface TopicColumn {
   id: string; version: number; name: string; questions: string; videoForms: string;

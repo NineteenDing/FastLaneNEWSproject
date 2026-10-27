@@ -44,7 +44,9 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
     const baseHeat = eventHeatV2(rows, asOf, editorial);
     const trends=platformAttention(related.flatMap(row=>(row.material.trends??[]).flatMap(trend=> {
       const observation=trend.observations.filter(value=>Date.parse(value.observedAt)<=cutoff).sort((a,b)=>Date.parse(b.observedAt)-Date.parse(a.observedAt))[0];
-      return observation?[{platform:trend.platform,board:trend.platform,rank:observation.rank,observedAt:observation.observedAt,active:trend.active!==false}]:[];
+      const prior=trend.observations.filter(value=>Date.parse(value.observedAt)<=cutoff);
+      return observation?[{platform:trend.platform,board:trend.platform,rank:observation.rank,
+        bestRank:Math.min(...prior.map(value=>value.bestRank??value.rank)),observedAt:observation.observedAt,active:trend.active!==false}]:[];
     })),asOf);
     const maximum=(a:number|null,b:number|null)=>a===null?b:b===null?a:Math.max(a,b);
     const heatV2=heatSnapshot({canonicalEventId:id,asOf,observationScope:"internal",state:baseHeat.observed===null&&trends.observed===null?"unknown":"partial",
