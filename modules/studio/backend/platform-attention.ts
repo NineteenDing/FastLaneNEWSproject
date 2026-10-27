@@ -4,9 +4,9 @@ export function platformAttention(rows: PlatformAttentionRow[], asOf: string) {
   const at = Date.parse(asOf), byPlatform = new Map<string, { value: number; fresh: boolean; board: string; rank:number }>();
   for (const row of rows) {
     const age = (at - Date.parse(row.observedAt)) / 3600000;
-    if (!row.active || !Number.isFinite(age) || age < 0 || !Number.isInteger(row.rank) || row.rank < 1 || row.rank > 100) continue;
+    if (!Number.isFinite(age) || age < 0 || !Number.isInteger(row.rank) || row.rank < 1 || row.rank > 100) continue;
     const rankValue = row.rank <= 5 ? 95 - (row.rank - 1) * 2.5 : row.rank <= 10 ? 85 - (row.rank - 5) * 2 : Math.max(40,75 - (row.rank - 10));
-    const value = rankValue * 2 ** (-age / 24), fresh = age <= 2;
+    const value = rankValue * 2 ** (-age / 24), fresh = row.active && age <= 2;
     const prior = byPlatform.get(row.platform);
     if (!prior || Number(fresh) > Number(prior.fresh) || fresh === prior.fresh && value > prior.value)
       byPlatform.set(row.platform, { value, fresh, board: row.board,rank:row.rank });

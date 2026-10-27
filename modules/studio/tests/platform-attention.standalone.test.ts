@@ -23,3 +23,8 @@ test("单榜条目带10万浏览量级参考，不能写成观测播放量；低
  const result=platformAttention([{platform:"baidu",board:"baidu",rank:50,observedAt:at,active:true}],at);
  assert.equal(result.channels[0]!.referenceViews,100000);assert.ok(result.observed!>=40);assert.equal(result.breakout,false);
 });
+
+test("下榜后保留衰减的历史关注证据，不冒充仍在榜或实时跨平台出圈",()=>{
+ const result=platformAttention([{platform:"baidu",board:"baidu",rank:50,observedAt:"2026-10-26T12:00:00Z",active:false}],"2026-10-27T12:00:00Z");
+ assert.equal(result.observed,20);assert.equal(result.freshObserved,null);assert.equal(result.breakout,false);
+});
