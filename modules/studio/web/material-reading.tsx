@@ -111,7 +111,7 @@ export function MaterialEvidence({ item, snapshot = false, analysis, images, sea
     .find(([, text]) => searchSnippet(text, searchQuery) !== null)?.[0] : undefined;
   return <article className="studio-evidence">
       {!!searchQuery && !snapshot && <p className="studio-notice">搜索“{searchQuery}”：{match ? <a href="#intelligence-search-match">跳到首个匹配位置</a> : "当前保存的内容中未找到匹配，来源可能已更新。"}</p>}
-      <header><h2><SearchText text={item.title} query={searchQuery} anchor={match === "title"} /></h2><div className="studio-material-source"><SourceAvatar key={item.source.avatarUrl} source={item.source} /><span><SearchText text={item.source.name} query={searchQuery} anchor={match === "source"} /></span></div>
+      <header><h2><SearchText text={item.title} query={searchQuery} anchor={match === "title"} /></h2>{item.originalTitle && <p className="studio-caption" lang="en">{item.originalTitle}</p>}<div className="studio-material-source"><SourceAvatar key={item.source.avatarUrl} source={item.source} /><span><SearchText text={item.source.name} query={searchQuery} anchor={match === "source"} /></span></div>
         <p className="studio-caption">发布：{date(item.publishedAt)}<br />收录：{date(item.collectedAt)} · 香港时间</p>
         <p className="studio-caption">{metrics(item)}</p>
         <p className="studio-caption">最近更新：{date(item.observations.at(-1)?.observedAt ?? item.updatedAt)} · 热度只保存实际取得的观察</p>

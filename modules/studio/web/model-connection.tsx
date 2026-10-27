@@ -21,7 +21,10 @@ function ModelTaskControl({ operations }: { operations: ModelOperations }) {
   </div>;
 }
 
-export function ModelConnectionSettings({ connection, operations, usage, budget }: { connection: ModelConnection; operations: ModelOperations; usage: ModelUsage; budget: ModelBudgetSettings }) {
+function ConnectionForm({ connection, basic = false }: { connection: ModelConnection; basic?: boolean }) {
+  const endpoint = basic ? "/api/admin/studio/model-basic-connection" : "/api/admin/studio/model-connection";
+  const prefix = basic ? "basic" : "creative";
+  const [modelName, setModelName] = useState(connection.analysisModel);
   const action = useAdminAction("studio-layout");
   const [baseUrl, setBaseUrl] = useState(connection.baseUrl), [apiKey, setApiKey] = useState("");
   const [analysisInput, setAnalysisInput] = useState(connection.analysisPrice?.inputPerMillion.toString() ?? "");
@@ -30,48 +33,53 @@ export function ModelConnectionSettings({ connection, operations, usage, budget 
   const price = (input: string, output: string) => input.trim() || output.trim() ? { inputPerMillion: Number(input), outputPerMillion: Number(output) } : null;
   async function save(event: FormEvent) {
     event.preventDefault();
-    const result = await action.run("PUT", "/api/admin/studio/model-connection", { version: connection.version, baseUrl, analysisModel: STUDIO_MODEL, qualityModel: STUDIO_MODEL,
+    const result = await action.run("PUT", endpoint, { version: connection.version, baseUrl, analysisModel: basic ? modelName : STUDIO_MODEL, qualityModel: basic ? modelName : STUDIO_MODEL,
       ...(apiKey ? { apiKey } : {}), analysisPrice: price(analysisInput, analysisOutput),
-      visionModel: visionEnabled ? STUDIO_MODEL : null },
+      visionModel: !basic && visionEnabled ? STUDIO_MODEL : null },
       { success: "模型连接已保存，调用开关保持不变" });
     if (result) setApiKey("");
   }
   async function clear() {
     if (!window.confirm("清除保存的API Key？模型名称、已有选题和稿件会保留。")) return;
-    const result = await action.run("PUT", "/api/admin/studio/model-connection", { version: connection.version, baseUrl: connection.baseUrl,
+    const result = await action.run("PUT", endpoint, { version: connection.version, baseUrl: connection.baseUrl,
       analysisModel: connection.analysisModel, qualityModel: connection.qualityModel, apiKey: "", analysisPrice: connection.analysisPrice, qualityPrice: connection.qualityPrice },
       { success: "API Key已清除，已有内容保留" });
     if (result) setApiKey("");
   }
-  return <section className="studio-session-settings" aria-labelledby="model-connection-title">
-    <h2 id="model-connection-title">模型服务</h2>
-    <p className="studio-notice">材料分析、选题、审核、口播与风格学习统一使用 DeepSeek Flash，共用一个服务地址、Key和费率。</p>
-    <ModelTaskControl operations={operations} />
-    <ModelUsageSettings usage={usage} budget={budget} />
+  return <section className="studio-session-settings" aria-labelledby={`${prefix}-connection-title`}>
+    <h2 id={`${prefix}-connection-title`}>{basic ? "基础处理 API" : "创作决策 API · DeepSeek"}</h2>
+    <p className="studio-notice">{basic ? "初筛、事实与摘要、分类、新闻及榜单翻译、日报文字编排。可单独设置兼容API的模型、地址、Key和单价。" : "正式选题综合、候选方向、二审与裁决、口播稿及风格学习，保留现有DeepSeek连接。"}</p>
+    {basic && connection.version === 0 && <p className="studio-caption">基础API尚未配置：为保持新闻处理连续，暂用现有创作API；保存后切换，清除已配置Key会暂停基础调用，不自动付费回退。</p>}
     <p className="studio-caption">保存连接不会启用任务，也不会发送测试请求。</p>
     <p className="studio-caption">{connection.state === "saved" ? "API Key已保存，仅供服务器使用；连接是否可用以任务实际结果为准。" : connection.state === "unreadable" ? "API Key无法解密，请重新填写后保存。" : "尚未保存API Key。"}</p>
     <form className="studio-model-form" onSubmit={save}>
-      <div className="studio-wide"><label>API基础地址<input type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} maxLength={2048} required disabled={action.busy} aria-describedby="model-url-help" /></label>
-        <p id="model-url-help" className="studio-caption">填写HTTPS地址，例如 https://api.deepseek.com/v1。不要填写 /chat/completions。</p></div>
+      <div className="studio-wide"><label>API基础地址<input type="url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} maxLength={2048} required disabled={action.busy} aria-describedby={`${prefix}-url-help`} /></label>
+        <p id={`${prefix}-url-help`} className="studio-caption">填写HTTPS地址，例如 https://api.deepseek.com/v1。不要填写 /chat/completions。</p></div>
       <label className="studio-wide">API Key<input type="password" autoComplete="off" spellCheck={false} value={apiKey} onChange={event => setApiKey(event.target.value)} maxLength={4096}
         required={connection.state !== "saved"} disabled={action.busy} placeholder={connection.state === "saved" ? "留空保留现有Key，填写新值可替换" : "填写服务商提供的API Key"} /></label>
-      <label className="studio-wide">Flash模型<input value={STUDIO_MODEL} readOnly aria-describedby="flash-model-help" /></label>
-      <p id="flash-model-help" className="studio-caption studio-wide">兼容服务也需要提供 deepseek-flash；系统不会自动切换到Pro或其他模型。</p>
+      <label className="studio-wide">{basic ? "基础模型名称" : "DeepSeek模型"}<input value={basic ? modelName : STUDIO_MODEL} readOnly={!basic} onChange={event => setModelName(event.target.value)} required aria-describedby={`${prefix}-model-help`} /></label>
+      <p id={`${prefix}-model-help`} className="studio-caption studio-wide">{basic ? "填写服务商的准确模型ID，需支持兼容Chat Completions的JSON文本响应；不会自动升级到昂贵模型。" : "创作流程继续使用 deepseek-flash，不因修改基础API而切换。"}</p>
       <section className="studio-settings-panel studio-wide" aria-label="兼容服务与费用估算"><h3>兼容服务与费用估算</h3>
-        <p className="studio-caption">官方Flash默认按输入2元、输出8元／百万tokens的高峰单价估算，不抵扣缓存优惠。兼容服务请填写自己的Flash单价；这里只估算费用，实际扣费以服务商账单为准。</p>
+        <p className="studio-caption">两套API分别按各自单价记录预算。填写人民币元／百万tokens；不抵扣缓存优惠，实际扣费以服务商账单为准。</p>
         <p className="studio-caption">更换服务商时需要重新填写Key。以下单位均为人民币元／百万tokens。</p>
         <div className="studio-model-form">
-          <label>Flash输入单价<input type="number" min={0} max={1_000_000} step="any" value={analysisInput} onChange={event => setAnalysisInput(event.target.value)} required={!!analysisOutput} disabled={action.busy} /></label>
-          <label>Flash输出单价<input type="number" min={0} max={1_000_000} step="any" value={analysisOutput} onChange={event => setAnalysisOutput(event.target.value)} required={!!analysisInput} disabled={action.busy} /></label>
+          <label>输入单价<input type="number" min={0} max={1_000_000} step="any" value={analysisInput} onChange={event => setAnalysisInput(event.target.value)} required={basic || !!analysisOutput} disabled={action.busy} /></label>
+          <label>输出单价<input type="number" min={0} max={1_000_000} step="any" value={analysisOutput} onChange={event => setAnalysisOutput(event.target.value)} required={basic || !!analysisInput} disabled={action.busy} /></label>
         </div>
       </section>
-      <section className="studio-settings-panel studio-wide" aria-label="参考视频深度分析（可选）"><h3>参考视频深度分析（可选）</h3>
+      {!basic && <section className="studio-settings-panel studio-wide" aria-label="参考视频深度分析（可选）"><h3>参考视频深度分析（可选）</h3>
         <div className="studio-actions"><span id="flash-vision-label">允许Flash图片分析</span><button type="button" className="studio-slide-switch" role="switch" aria-labelledby="flash-vision-label" aria-checked={visionEnabled} disabled={action.busy} onClick={() => setVisionEnabled(value => !value)}><span aria-hidden="true" /></button></div>
         <p className="studio-caption">图片也使用同一个Flash模型与费率。请确认服务商支持图片输入；关闭时普通文本写稿照常使用，修改后保存生效。</p>
         <p className="studio-caption">保存不发送图片。仅在采纳选题时明确开启才准备分析；最多2条视频、每条3帧，估算超过2元不调用。相同参考和配置复用已完成结果，实际扣费以服务商为准。</p>
       </section>
-      <div className="studio-actions studio-wide"><button className="studio-primary" disabled={action.busy}>{action.busy ? "正在保存…" : "保存模型连接"}</button>
+      }<div className="studio-actions studio-wide"><button className="studio-primary" disabled={action.busy}>{action.busy ? "正在保存…" : "保存模型连接"}</button>
         {connection.state !== "missing" && <button type="button" disabled={action.busy} onClick={clear}>清除API Key</button>}</div>
     </form>
   </section>;
+}
+
+export function ModelConnectionSettings({connection,basicConnection,operations,usage,budget}:{connection:ModelConnection;basicConnection:ModelConnection;operations:ModelOperations;usage:ModelUsage;budget:ModelBudgetSettings}) {
+ return <><section className="studio-session-settings"><h2>模型任务与费用</h2><ModelTaskControl operations={operations}/><ModelUsageSettings usage={usage} budget={budget}/></section>
+ <ConnectionForm key={`basic:${basicConnection.version}`} connection={basicConnection} basic/>
+ <ConnectionForm key={`creative:${connection.version}`} connection={connection}/></>;
 }

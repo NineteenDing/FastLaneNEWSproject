@@ -35,7 +35,9 @@ function materialRows(db: Tx, filter: { q?: string; kind?: string; platform?: st
       AND ${filter.origin ? db`false` : db`true`}
       AND ${filter.ids === undefined ? db`true` : db`a.id = ANY(${filter.ids.filter(id => id.startsWith("news:")).map(id => id.slice(5))}::text[])`}
       AND (${filter.platform ?? null}::text IS NULL OR ${filter.platform ?? null} = 'news')
-      AND (${pattern} = '%%' OR a.title ILIKE ${pattern} OR a.excerpt ILIKE ${pattern} OR a.body_text ILIKE ${pattern} OR s.name ILIKE ${pattern})
+      AND (${pattern} = '%%' OR a.title ILIKE ${pattern} OR a.excerpt ILIKE ${pattern} OR a.body_text ILIKE ${pattern} OR s.name ILIKE ${pattern}
+        OR EXISTS(SELECT 1 FROM studio_live_material_analyses l JOIN studio_history_index h ON h.material_id=l.material_id AND l.source_key=h.knowledge->>'sourceKey' WHERE h.article_id=a.id AND l.result->'shared'->>'titleZh' ILIKE ${pattern})
+        OR EXISTS(SELECT 1 FROM studio_news_titles nt WHERE nt.text_key=encode(sha256(convert_to('news-title-zh-v1:'||trim(a.title),'UTF8')),'hex') AND nt.title_zh ILIKE ${pattern}))
     UNION ALL
     SELECT 'creator:' || p.id AS id, coalesce(p.content->>'kind', 'video') AS kind,
       p.content->>'title' AS title, left(coalesce(p.content->>'text', ''), 180) AS excerpt,
@@ -90,8 +92,9 @@ export function intelligenceEvidence(db: Tx, window: { earliestStart: Date; star
     WHERE ${selectedOutsideWindow && ids?.length ? db`true` : db`m."collectedAt" >= ${window.earliestStart} AND m."collectedAt" < ${window.endsAt}`}`;
 }
 
-function project(row: Row): IntelligenceRow {
-  return { ...row, publishedAt: row.publishedAt?.toISOString() ?? null, collectedAt: row.collectedAt.toISOString(),
+function project(row: Row, titleZh?: string | null): IntelligenceRow {
+  const title = titleZh?.trim() && /[\u3400-\u9fff]/.test(titleZh) ? titleZh.trim() : row.title;
+  return { ...row, title, ...(title !== row.title ? { originalTitle: row.title } : {}), publishedAt: row.publishedAt?.toISOString() ?? null, collectedAt: row.collectedAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(), analysisState: "not_connected" };
 }
 
@@ -134,8 +137,11 @@ export async function intelligenceList(input: unknown): Promise<IntelligenceList
     const rows = await db<Row[]>`WITH materials AS (${filteredMaterialRows(db, query, jobsAvailable ?? false, columns)}) SELECT * FROM materials
       WHERE ${day} ORDER BY ${time} DESC NULLS LAST, id DESC LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit}`;
     const analyses = await materialAnalysisReadings(db, rows.map(row => row.id), await modelWorkAllowed(db), jobsAvailable);
-    const matches = await intelligenceMatches(db, rows, query.q);
-    return { rows: rows.map(row => ({ ...project(row), analysisState: analyses.get(row.id)?.state ?? "not_analyzed", ...(matches.has(row.id) ? { match: matches.get(row.id)! } : {}) })), total, page: query.page, hasMore: query.page * query.limit < total };
+    const cachedTitles = await db<{title: string; title_zh: string}[]>`SELECT a.title,t.title_zh FROM articles a JOIN studio_news_titles t ON t.text_key=encode(sha256(convert_to('news-title-zh-v1:'||trim(a.title),'UTF8')),'hex') WHERE a.id=ANY(${rows.filter(row=>row.kind==='news').map(row=>row.id.slice(5))}::text[])`;
+    const titles = new Map(cachedTitles.map(row=>[row.title,row.title_zh]));
+    const displayed = rows.map(row => project(row, analyses.get(row.id)?.result?.shared?.titleZh ?? titles.get(row.title)));
+    const matches = await intelligenceMatches(db, displayed, query.q);
+    return { rows: displayed.map(row => ({ ...row, analysisState: analyses.get(row.id)?.state ?? "not_analyzed", ...(matches.has(row.id) ? { match: matches.get(row.id)! } : {}) })), total, page: query.page, hasMore: query.page * query.limit < total };
   }) as Promise<IntelligenceList>;
 }
 
@@ -169,7 +175,8 @@ export async function intelligenceDetail(id: string): Promise<IntelligenceDetail
     const [row] = await db<Row[]>`WITH materials AS (${materialRows(db, { ids: [key] })}) SELECT * FROM materials WHERE id = ${key}`;
     if (!row) return null;
     const analysis = (await materialAnalysisReadings(db, [key], await modelWorkAllowed(db))).get(key) ?? null;
-    const projected = { ...project(row), analysis, analysisState: analysis?.state ?? "not_analyzed" as const };
+    const titleZh = analysis?.result?.shared?.titleZh ?? (row.kind === "news" ? await (await import("./news-titles.ts")).savedNewsTitle(db, row.title) : null);
+    const projected = { ...project(row, titleZh), analysis, analysisState: analysis?.state ?? "not_analyzed" as const };
     if (!creator) {
       const [body] = await db<{ url: string; body: string; bodyState: string }[]>`SELECT url,
         coalesce(body_text, excerpt, '') AS body, body_status AS "bodyState" FROM articles WHERE id = ${externalId}`;

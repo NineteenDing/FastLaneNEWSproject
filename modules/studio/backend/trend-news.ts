@@ -50,6 +50,20 @@ export const trendNewsQueue=defineQueue<Job>({name:"studio.trends.news",options:
     if(!signal)continue;
     try{
       let article: {url:string;title:string;body:string;html?:string|null;publishedAt?:Date|null}|null=null;
+      // A search/question page need not be readable if this same event already has a grounded article.
+      const existing = await sql<{id:string;title:string;titleZh:string|null}[]>`SELECT a.id,a.title,m.evidence->>'titleZh' AS "titleZh" FROM articles a
+        JOIN sources src ON src.id=a.source_id JOIN studio_history_index h ON h.article_id=a.id
+        JOIN studio_shared_event_members m ON m.material_id=h.material_id AND m.source_key=h.knowledge->>'sourceKey'
+        LEFT JOIN editorial_overrides o ON o.article_id=a.id
+        WHERE src.participation_mode='editorial' AND o.visibility IS DISTINCT FROM 'withdrawn' AND a.body_status='ok'
+          AND m.evidence->>'aiCentral'='true' AND jsonb_array_length(m.evidence->'facts')>0
+          AND a.published_at>=now()-interval '5 days' ORDER BY a.published_at DESC LIMIT 500`;
+      const matches=existing.filter(row=>sameTrendHeadline(signal.title,row.title)||!!row.titleZh&&sameTrendHeadline(signal.title,row.titleZh));
+      if(new Set(matches.map(row=>row.id)).size===1){
+        await sql`UPDATE studio_trend_news SET state='ready',article_id=${matches[0]!.id},error_code=NULL,updated_at=now()
+          WHERE signal_id=${job.signalId} AND relevance_key=${job.key} AND run_token=${job.token}`;
+        await refreshTrendEventLinks();continue;
+      }
       // Reuse a collected public trend representative, never a random followed creator or private comments.
       const [representative]=await sql<{url:string;title:string;content:Record<string,unknown>;publishedAt:Date|null;body:string|null}[]>`
         SELECT p.content->>'url' AS url,p.content->>'title' AS title,p.content,(p.content->>'publishedAt')::timestamptz AS "publishedAt",t.result->>'text' AS body FROM studio_trend_deep_reads d

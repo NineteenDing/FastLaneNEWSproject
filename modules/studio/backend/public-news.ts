@@ -95,7 +95,7 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     ) SELECT id, parent_id FROM ancestors WHERE parent_id IS NULL` : [];
     const rootId = ancestors[0]?.id;
     const publicSummary = publicSummaryState(record.analysis?.shared);
-    const reasonLabels: Record<string, string> = { direct_all: "符合AI影视公开范围", direct_selected: "符合AI影视公开与精选资格",
+    const reasonLabels: Record<string, string> = { model_release: "正文确认的模型发布", direct_all: "符合AI影视公开范围", direct_selected: "符合AI影视公开与精选资格",
       major_event: "已核实重大事件", verified_breakout: "已确认相关出圈", general_ai_selected: "通用AI达到精选资格",
       market_reference: "非AI影视严格例外", excluded: "未通过公开资格", pending: "待核验", private: "内部材料" };
     const title = record.analysis?.shared?.titleZh ?? await savedNewsTitle(db, record.title) ?? record.title;

@@ -139,7 +139,7 @@ async function analyze(job: BatchJob) {
     WHERE batch_id = ${job.batchId} AND material_id = ${job.materialId}`;
   try {
     if ([materialAnalysisCachePolicy, legacyMaterialAnalysisCachePolicy].includes(job.cachePolicy ?? "") && extractEntities) {
-      const context = { ...row, ...(job.insightPolicy ? { insightPolicy: job.insightPolicy } : {}), ...(job.cachePolicy === materialAnalysisCachePolicy ? { sharedPolicy: materialAnalysisCachePolicy } : {}) };
+      const context = { ...row, requireChineseTitle: true, ...(job.insightPolicy ? { insightPolicy: job.insightPolicy } : {}), ...(job.cachePolicy === materialAnalysisCachePolicy ? { sharedPolicy: materialAnalysisCachePolicy } : {}) };
       const identity = await materialAnalysisModelIdentity();
       const takeover = await sql.begin(db => liveMaterialTakeover(db, context, identity));
       if (takeover === "waiting") throw new QueueDeferred("采集中同版分析仍在进行，等待原任务完成");

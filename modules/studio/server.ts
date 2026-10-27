@@ -272,7 +272,7 @@ export const createStudioServer = (resources: {
       .send(await platformLogins.frame((req.params as { id: string }).id))));
     app.post("/api/admin/studio/platform-logins/:id/actions", adminHandler((req) => platformLogins.action((req.params as { id: string }).id, req.body)));
     app.delete("/api/admin/studio/platform-logins/:id", adminHandler((req) => platformLogins.cancel((req.params as { id: string }).id)));
-    app.get("/api/admin/studio/model-connection", adminHandler(modelConnection));
+    app.get("/api/admin/studio/model-connection", adminHandler(() => modelConnection()));
     app.get("/api/admin/studio/model-operations", adminHandler(() => modelOperations()));
     app.get("/api/admin/studio/collection-operations", adminHandler(async () => collectionOperations()));
     app.get("/api/admin/studio/runtime-components", adminHandler(runtimeComponents));
@@ -283,6 +283,8 @@ export const createStudioServer = (resources: {
     app.get("/api/admin/studio/model-budget", adminHandler(async () => modelBudgetSettings()));
     app.put("/api/admin/studio/model-budget", adminHandler(async (req, _reply, admin) => saveModelBudgetSettings(req.body, actorOf(admin))));
     app.put("/api/admin/studio/model-operations", adminHandler(async (req, _reply, admin) => saveModelOperations(req.body, actorOf(admin))));
+    app.get("/api/admin/studio/model-basic-connection", adminHandler(() => modelConnection("basic")));
+    app.put("/api/admin/studio/model-basic-connection", adminHandler(async (req, _reply, admin) => saveModelConnection(req.body, actorOf(admin), "basic")));
     app.put("/api/admin/studio/model-connection", adminHandler(async (req, _reply, admin) => saveModelConnection(req.body, actorOf(admin))));
     app.put("/api/admin/studio/platform-sessions/:platform", adminHandler(async (req, _reply, admin) =>
       savePlatformSession((req.params as { platform: string }).platform, req.body, actorOf(admin))));

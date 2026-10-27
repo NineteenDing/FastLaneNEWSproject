@@ -1,3 +1,4 @@
+import { modelProfileFor, type ModelProfile } from "./model-routing.ts";
 import type { z } from "zod";
 import { sql } from "@aihot/backend/db";
 import { chatJson, escapeControlCharsInStrings, type ChatJsonOptions } from "@aihot/backend/providers/llm";
@@ -15,9 +16,9 @@ type Capability = "studioMaterialAnalysis" | "studioTopicGeneration" | "studioTo
 const connectionIdentity = (version: number, baseUrl: string, model: string) => sha256(stableJson({ version, baseUrl, model }));
 const environmentIdentity = () => sha256(stableJson({ model: STUDIO_MODEL, baseUrl: credential("models", "LLM_BASE_URL"), policy: "studio-flash-only-v1" }));
 /** A non-secret identity of the effective analysis service, model and configuration version. */
-export async function materialAnalysisModelIdentity() {
-  const connection = await modelConnection();
-  return connection.version ? connectionIdentity(connection.version, connection.baseUrl, connection.analysisModel)
+export async function materialAnalysisModelIdentity(purpose = "studio_material_analysis") {
+  const basic = modelProfileFor(purpose) === "basic" ? await modelConnection("basic") : null, connection = basic?.version ? basic : await modelConnection();
+  return connection.version ? (basic?.version ? "basic:" : "") + connectionIdentity(connection.version, connection.baseUrl, connection.analysisModel)
     : environmentIdentity();
 }
 async function beforeModelCall() {
@@ -40,7 +41,10 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
     "缺少rhythm或其中audio/visual为null表示没有该项观察，不能从ASR断句或少量关键帧补造语音/画面节奏。不能推断完播率、留存、收益或博主动机已被证实。" +
     "仅在任务需要表达参考时，结合实际正文、时间段和可用观察概括开头、展开和结尾；每项给出对应材料或时间依据，将可观察特征与可能作用分开，缺少证据明确说明。不能把风格样本中的经历、事实或口头禅搬进新稿。" };
   await beforeCall();
-  let connection = await modelConnectionSecret();
+  const requestedProfile = modelProfileFor(options.purpose);
+  const basicConfigured = requestedProfile === "basic" && (await modelConnection("basic")).version > 0;
+  const profile: ModelProfile = basicConfigured ? "basic" : "creative";
+  let connection = await modelConnectionSecret(profile);
   const fromEnvironment = !connection;
   if (!connection) {
     if (capability === "studioReferenceVision") throw new Conflict("图像模型连接未配置");
@@ -50,7 +54,7 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   }
   if (capability === "studioReferenceVision" && (!connection.visionModel || !connection.visionPrice)) throw new Conflict("图像模型或费用配置已改变，请重新准备参考");
   const model = capability === "studioReferenceVision" ? connection.visionModel! : connection.analysisModel;
-  if (options.expectedIdentity && (fromEnvironment ? environmentIdentity() : connectionIdentity(connection.version, connection.baseUrl, model)) !== options.expectedIdentity) {
+  if (options.expectedIdentity && (fromEnvironment ? environmentIdentity() : (profile === "basic" ? "basic:" : "") + connectionIdentity(connection.version, connection.baseUrl, model)) !== options.expectedIdentity) {
     if (capability === "studioReferenceVision") throw new Conflict("图像模型配置已改变，请重新准备参考");
     throw new QueueDeferred("材料分析模型已变更，等待按新配置处理");
   }
@@ -60,8 +64,9 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   const price = configuredPrice ?? (fromEnvironment || new URL(connection.baseUrl).origin === "https://api.deepseek.com" ? { inputPerMillion: 2, outputPerMillion: 8 } : null);
   if (!price) throw new Conflict("此服务或模型尚未配置费用估算，未开始模型请求");
   const shortStructured = capability === "studioMaterialAnalysis" || capability === "studioReferenceVision" || options.subject.startsWith("studio-preview:");
-  const extra = { thinking: { type: shortStructured ? "disabled" : "enabled" } };
-  const connectionId = fromEnvironment ? `studio-environment:${environmentIdentity()}` : `studio-model-connection:${connection.version}`;
+  const agnes = profile === "basic" && new URL(connection.baseUrl).hostname === "api.agnes-ai.cn";
+  const extra = profile === "basic" ? (agnes ? { chat_template_kwargs: { enable_thinking: false } } : {}) : { thinking: { type: shortStructured ? "disabled" : "enabled" } };
+  const connectionId = fromEnvironment ? `studio-environment:${environmentIdentity()}` : `studio-model-${profile === "basic" ? "basic-" : ""}connection:${connection.version}`;
   // Re-validate an already-paid response only for the exact frozen material/model context.
   // Parser compatibility must not cause a second network request or accept mismatched evidence.
   if (["studio_material_analysis", "studio_news_title_translation"].includes(options.purpose) && typeof options.user === "string") {
@@ -81,7 +86,7 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   }
   const activeConnection = connection;
   return chatJson({ ...options, beforeCall, model: "studio-connection", connection: {
-    model, service: "llm", identity: connectionId, jsonMode: true, price, extra,
+    model, service: "llm", identity: connectionId, jsonMode: profile !== "basic", price, extra,
     ...(!shortStructured ? { reasoningTokens: 4000 } : {}),
     async request(body, signal) {
       const serialized = JSON.stringify(body);

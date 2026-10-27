@@ -124,10 +124,10 @@ export const sharedMaterialInstructions = "本次为二期共享基础分析：�
   "评论中的parentExternalId指向本材料父评论，回复须连同父评论理解，不把同一讨论链当作多份事实验证；样本范围由采集记录展示，不从样本推断全网共识。" +
   "全部quotes逐字来自material.body；不从标题或评论补造新闻事实。material未提供发布时间、指标与来源身份，因为它们由程序按原记录计算，不能填猜测数字。" +
   "v2补充：editorialScope为direct_ai_film(明确直接AI影视)/general_ai(AI是主体但非直接AI影视)/non_ai_film(影视音乐漫剧相关但AI非核心)/unrelated/uncertain；aiCentral与filmRelevant为布尔并须有正文依据。direct_ai_film须两者true，general_ai须aiCentral=true，non_ai_film须filmRelevant=true；来源是AI科技媒体不能替代文章相关性。" +
-  "v2为{I,M,D,P,E,X}，每项{value:0至100或null,reason,factIds:指向shared.facts的整数下标数组}；I受众兴趣、M影响重要性、D实质信息、P可操作价值、E证据支撑、X表达与新增空间。无实操内容的P=0是明确不适用，不得为了过线倒推分数；核心维度缺失标null。" +
+  "M按事件所在AI领域的真实影响评价，通用AI模型发布不以影视实操落地为必需；AI音乐、配音、图像、视频、剧本创作及其版权与观看体验直接属于AI影视，不要求教程。v2为{I,M,D,P,E,X}，每项{value:0至100或null,reason,factIds:指向shared.facts的整数下标数组}；I受众兴趣、M影响重要性、D实质信息、P可操作价值、E证据支撑、X表达与新增空间。无实操内容的P=0是明确不适用，不得为了过线倒推分数；核心维度缺失标null。" +
   "publicSummary只写80至180个中文字符（硬上限300）的新闻事实及明确归因的原文观点，不写评分、推荐、相关性、选题、模型判断或“值得关注/潜在参考”；summaryFactIds指向支持摘要的shared.facts下标。" +
   "majorEvent仅在已核实的重大模型发布、约束性政策、重大事故、重大平台或行业变化时输出{kind,affectedGroups,realizedChange,evidenceFactIds,limitations}；普通融资、名人表态、预告、估值变化和普通小版本更新不是重大，否则null。primaryIntent为practice/models/news/cases/other，按文章主要问题给出。同时保留旧shared.scope字段。" +
-  "外文新闻在本次同一轮理解中同步输出titleZh作为正式中文标题，保留专有名词，不杜撰原标题没有的事实。中文原标题可省略titleZh。" +
+  "外文新闻无论相关、无关、是否公开，都必须在本次同一轮初筛理解中同步输出自然中文titleZh作为正式中文标题，保留专有名词，不杜撰原标题没有的事实。中文原标题可省略titleZh。" +
   "memeMetrics仅在正文引文明确给出量化传播证据时输出{participants,platforms,sources,cases,originalParticipants,derivativeWorks,evidenceFactIds}，未知计0，不能把刷屏/爆火修辞换算人数。无量化证据输出null。" +
   "输出契约补充：shared只能放JSON顶层，与insights并列，不能放在insights里面。majorEvent可为null；非null时kind只允许major_model_release、binding_policy、major_incident、major_platform_change、major_industry_change、none，不能新增其他枚举；affectedGroups必须是字符串数组，evidenceFactIds必须是整数下标数组，limitations为字符串或null。无法适配类型时majorEvent=null，不改写为已核实重大事件。" +
   "事实引句包括evidenceQuotes、facts.quotes、scopeQuotes与insights.impacts.evidenceQuotes，必须是material.body中的连续原文子串；insights.commentFocus.evidence.quote必须是对应material.comments评论中的连续原文子串并标记真实commentId；英文引句不得翻译成中文，不改引号、不缩写、不补省略号，不确定就引用较短但完整的原文。未知时间置null，不补年份。" +

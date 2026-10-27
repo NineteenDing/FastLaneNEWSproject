@@ -43,34 +43,12 @@ export const newsTitleQueue=defineQueue<{items:Item[]}>({name:"studio.news.title
 
 /** Compatibility for already-paid English analyses; new analyses translate their title in the same call. */
 export async function scheduleNewsTitles(retryFailed=false){
-  if(!await modelWorkAllowed())return{queued:false};
+  // User decision 2026-10-27: new headlines translate during initial analysis; no historical backfill.
+  if(!retryFailed || !await modelWorkAllowed())return{queued:false};
   await ensureQueue(newsTitleQueue.name,newsTitleQueue.options);
-  if(retryFailed){
-    const failed=await sql<{data:{items:Item[]}}[]>`SELECT data FROM pgboss.job WHERE name=${newsTitleQueue.name}
-      AND state IN ('failed','cancelled') ORDER BY completed_on DESC NULLS LAST LIMIT 20`;
-    for(const job of failed)if((await savedNewsTitle(sql,job.data.items[0]?.title??''))===null)
-      return {queued:!!await enqueueOn(newsTitleQueue,job.data,{singletonKey:"news-title-batch"})};
-    return {queued:false};
-  }
-  const rows=await sql<{title:string}[]>`SELECT DISTINCT a.title FROM articles a JOIN studio_public_news n ON n.article_id=a.id
-    JOIN publications p ON p.article_id=a.id JOIN sources s ON s.id=a.source_id LEFT JOIN editorial_overrides o ON o.article_id=a.id
-    WHERE n.decision->>'allowed'='true' AND s.participation_mode='editorial' AND o.visibility IS DISTINCT FROM 'withdrawn'
-      AND a.published_at>=now()-interval '7 days' AND a.title !~ '[一-龥]' AND p.title !~ '[一-龥]' ORDER BY a.title LIMIT 100`;
-  const items:Item[]=[];for(const row of rows)if(!await savedNewsTitle(sql,row.title))items.push({key:textKey(row.title),title:row.title});
-  if(!items.length)return{queued:false};
-  await ensureQueue(newsTitleQueue.name,newsTitleQueue.options);
-  const failed=await sql<{data:{items:Item[]}}[]>`SELECT data FROM pgboss.job WHERE name=${newsTitleQueue.name} AND state IN ('failed','cancelled') ORDER BY completed_on DESC NULLS LAST LIMIT 100`;
-  const blocked=new Set(failed.flatMap(row=>row.data.items.map(item=>item.key)));
-  const batch=items.filter(item=>!blocked.has(item.key)).slice(0,20);if(!batch.length)return{queued:false};
-  const pendingKey=sha256(JSON.stringify(batch));
-  return sql.begin(async db=>{
-    await db`SELECT pg_advisory_xact_lock(hashtext('studio.news.titles'))`;
-    const [prior]=await db<{value:{key:string;jobId:string}}[]>`SELECT value FROM settings WHERE key='studio.news.titles.pending'`;
-    if(prior?.value.key===pendingKey){const [job]=await db`SELECT state FROM pgboss.job WHERE id=${prior.value.jobId} AND name=${newsTitleQueue.name}`;
-      if(['created','retry','active'].includes(job?.state??'') || !retryFailed&&job?.state!=='completed')return{queued:false};}
-    const id=await enqueueOn(newsTitleQueue,{items:batch},{singletonKey:"news-title-batch"},db);
-    if(id)await db`INSERT INTO settings(key,value,updated_by) VALUES('studio.news.titles.pending',${db.json({key:pendingKey,jobId:id})},'system:title-translation')
-      ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=now()`;
-    return{queued:!!id};
-  });
+  const failed=await sql<{data:{items:Item[]}}[]>`SELECT data FROM pgboss.job WHERE name=${newsTitleQueue.name}
+    AND state IN ('failed','cancelled') ORDER BY completed_on DESC NULLS LAST LIMIT 20`;
+  for(const job of failed)if((await savedNewsTitle(sql,job.data.items[0]?.title??''))===null)
+    return {queued:!!await enqueueOn(newsTitleQueue,job.data,{singletonKey:"news-title-batch"})};
+  return{queued:false};
 }

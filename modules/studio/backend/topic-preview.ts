@@ -24,7 +24,7 @@ import { rescoreCurrentDirections } from "./filter-scoring.ts";
 import type { CurrentTopicPreview, FilterPolicy, TopicBatchMaterial, TopicColumn, TopicMaterialAnalysis } from "../contracts.ts";
 
 type PreviewInput = { startsAt: string; endsAt: string; capturedAt: string; audience: string; columns: TopicColumn[];
-  materials: TopicBatchMaterial[]; materialCount: number; modelIdentity: string; sharedPolicy?: string; filterPolicy?: FilterPolicy;
+  materials: TopicBatchMaterial[]; materialCount: number; modelIdentity: string; synthesisModelIdentity?: string; sharedPolicy?: string; filterPolicy?: FilterPolicy;
   analyses?: Record<string, TopicMaterialAnalysis> };
 type Input = PreviewInput & { previous?: { version: number; fingerprint: string; input: PreviewInput; result: NonNullable<CurrentTopicPreview["result"]>; generatedAt: string | null } };
 type Stored = { id: string; version: number; fingerprint: string; input: Input; state: Exclude<CurrentTopicPreview["state"], "not_generated">;
@@ -60,7 +60,8 @@ export async function currentTopicPreview(): Promise<CurrentTopicPreview> {
   const [job] = row?.job_id && !row.result ? await sql`SELECT state FROM pgboss.job WHERE name = ${topicPreviewQueue.name} AND id = ${row.job_id}` : [];
   const interrupted = row && !row.result && !["created", "retry", "active"].includes(job?.state ?? "missing");
   const identity = row ? await materialAnalysisModelIdentity() : null;
-  const current = row ? await sql.begin("isolation level repeatable read read only", db => capture(db, batch, identity!)) : null;
+  const synthesisIdentity = row ? await materialAnalysisModelIdentity("studio_topic_generation") : undefined;
+  const current = row ? await sql.begin("isolation level repeatable read read only", db => capture(db, batch, identity!, synthesisIdentity)) : null;
   const previous = row && !row.result ? row.input.previous : undefined, shownInput = previous?.input ?? row?.input;
   const savedResult = row?.result ?? previous?.result ?? null;
   const result = savedResult && shownInput ? await sql.begin("isolation level repeatable read read only", async db =>
@@ -86,7 +87,7 @@ export async function topicPreviewMaterial(id: string, version: string, material
 }
 
 /** Compare precisely the current window and rules without changing its ownership or paying for analysis. */
-async function capture(db: Tx, window: { startsAt: string; endsAt: string }, modelIdentity: string) {
+async function capture(db: Tx, window: { startsAt: string; endsAt: string }, modelIdentity: string, synthesisModelIdentity?: string) {
   const columns = await currentColumns(db), all = await currentTopicEvidence(db, window);
   const readings = await materialAnalysisReadings(db, all.map(material=>material.id), true), analyses: Record<string,TopicMaterialAnalysis> = {};
   let materials = all.filter(material => {
@@ -112,17 +113,17 @@ async function capture(db: Tx, window: { startsAt: string; endsAt: string }, mod
     for(const id of Object.keys(analyses))if(!included.has(id))delete analyses[id];
   }
   const snapshot: Input = { startsAt: window.startsAt, endsAt: window.endsAt, capturedAt: new Date().toISOString(),
-    audience: topicAudience, columns, materials, analyses, materialCount: all.length, modelIdentity, sharedPolicy: materialAnalysisCachePolicy, filterPolicy: await currentFilterPolicy(db) };
+    audience: topicAudience, columns, materials, analyses, materialCount: all.length, modelIdentity, synthesisModelIdentity, sharedPolicy: materialAnalysisCachePolicy, filterPolicy: await currentFilterPolicy(db) };
   const inputIssue = sizeIssue(snapshot);
   const keys = inputIssue ? [] : await Promise.all(materials.map(evidence => prepareMaterialAnalysis({ evidence, columns, audience: topicAudience, insightPolicy: materialInsightPolicy, sharedPolicy: snapshot.sharedPolicy }, modelIdentity)));
-  const fingerprint = inputIssue ? "preview-input-too-large" : sha256(stableJson({ startsAt: window.startsAt, endsAt: window.endsAt, columns, materialCount: all.length, keys: keys.map(item => item.key),analyses }));
+  const fingerprint = inputIssue ? "preview-input-too-large" : sha256(stableJson({ startsAt: window.startsAt, endsAt: window.endsAt, columns, synthesisModelIdentity, keys: keys.map(item => item.key),analyses }));
   return { fingerprint, snapshot, inputIssue };
 }
 
 export async function submitTopicPreview(input: unknown, actor: string, automatic = false) {
   const value = z.object({ startsAt: z.iso.datetime(), retryFailed: z.boolean().optional() }).strict().parse(input);
   if (!await modelWorkAllowed()) throw new Conflict("模型调用尚未启用，请先配置并启用模型服务");
-  const modelIdentity = await materialAnalysisModelIdentity(), window = await currentWindow();
+  const modelIdentity = await materialAnalysisModelIdentity(), synthesisIdentity = await materialAnalysisModelIdentity("studio_topic_generation"), window = await currentWindow();
   if (window.stage !== "collecting" || window.startsAt !== new Date(value.startsAt).toISOString()) throw new Conflict("当期窗口已变化，请刷新后生成候选草案");
   await ensureQueue(topicPreviewQueue.name, topicPreviewQueue.options);
   return sql.begin(async db => {
@@ -137,7 +138,7 @@ export async function submitTopicPreview(input: unknown, actor: string, automati
     if (value.retryFailed && existing && existing.input.modelIdentity !== modelIdentity)
       throw new Conflict("原模型配置已变化，不能按原输入重试，请按最新材料更新候选草案");
     if (value.retryFailed && existing && (existing.result || active)) return { id: existing.id, queued: false };
-    const captured = value.retryFailed && existing ? { fingerprint: existing.fingerprint, snapshot: existing.input, inputIssue: null } : await capture(db, window, modelIdentity);
+    const captured = value.retryFailed && existing ? { fingerprint: existing.fingerprint, snapshot: existing.input, inputIssue: null } : await capture(db, window, modelIdentity, synthesisIdentity);
     if (captured.inputIssue) throw new Conflict(captured.inputIssue);
     const { fingerprint } = captured;
     if (!captured.snapshot.materials.length) {
@@ -189,6 +190,8 @@ async function generate(job: Job) {
       throw new PreviewStopped("本期候选窗口已截止，请查看正式批次或生成新一期草案");
     if (await materialAnalysisModelIdentity() !== input.modelIdentity)
       throw new PreviewStopped("模型配置已变化，原依据仍保留，请按最新材料更新候选草案");
+    if (input.synthesisModelIdentity && await materialAnalysisModelIdentity("studio_topic_generation") !== input.synthesisModelIdentity)
+      throw new PreviewStopped("创作模型配置已变化，请更新候选草案");
     if (!await backgroundWorkHasPriority(sql, "preview")) throw new QueueDeferred("候选草案等待已确认稿件或正式选题完成");
   };
   try {

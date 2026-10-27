@@ -87,7 +87,7 @@ export async function submitCreatorExpressions(id: string, input: unknown, actor
   z.uuid().parse(id); const options = z.object({ retryFailed: z.boolean().optional() }).strict().parse(input);
   if (!await modelWorkAllowed()) throw new Conflict("模型调用尚未启用");
   await ensureQueue(creatorExpressionQueue.name, creatorExpressionQueue.options);
-  const identity = await materialAnalysisModelIdentity();
+  const identity = await materialAnalysisModelIdentity("studio_style_creator");
   return sql.begin(async db => {
     await db`SELECT pg_advisory_xact_lock(hashtextextended(${`studio.creator.expressions:${id}`}, 0))`;
     if (!(await db`SELECT id FROM studio_creator_accounts WHERE id = ${id}`).length) return null;

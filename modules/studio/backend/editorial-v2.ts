@@ -3,7 +3,7 @@ import type { EditorialPolicyV2 } from "../contracts.ts";
 import { interpolateValue, reporterHeatValue, videoHeatValue } from "@aihot/backend/events/heat-v2";
 export type EditorialScope = "direct_ai_film" | "general_ai" | "non_ai_film" | "unrelated" | "uncertain";
 export type ObservationState = "complete" | "partial" | "unknown";
-export type PublicRoute = "direct_all" | "direct_selected" | "major_event" | "verified_breakout" | "general_ai_selected" | "market_reference" | "excluded" | "pending" | "private";
+export type PublicRoute = "model_release" | "direct_all" | "direct_selected" | "major_event" | "verified_breakout" | "general_ai_selected" | "market_reference" | "excluded" | "pending" | "private";
 export type Dimensions = { I: number; M: number; D: number; P: number; F: number };
 export type InternalDimensions = { I: number; M: number; E: number; X: number; P: number; F: number };
 
@@ -55,7 +55,7 @@ export interface HeatSnapshotV2 {
   channels: {
     reports: { value: number | null; participants: number; effective: number; freshValue: number | null; freshParticipants: number; freshEffective: number };
     video: Array<{ platform: string; value: number | null; effective: number; freshValue: number | null; freshEffective: number; works: number; authors: number; freshAuthors: number }>;
-    trends: Array<{ board: string; value: number | null; freshValue: number | null; rank?: number }>;
+    trends: Array<{ board: string; value: number | null; freshValue: number | null; rank?: number; referenceViews?: number }>;
   };
   missingReasons: string[];
   memberVersion: string;
@@ -131,6 +131,7 @@ export interface PublicRouteInput {
   aiCentral?: boolean;
   filmRelevant?: boolean;
   factsAvailable?: boolean;
+  modelRelease?: boolean;
   major?: boolean;
   breakout?: boolean;
   policy?: EditorialPolicyV2;
@@ -160,6 +161,8 @@ export function routePublic(input: PublicRouteInput): ReturnType<typeof scorePub
     const selected = scored.S >= policy.public.general.S && input.dimensions.M >= policy.public.general.M
       && input.dimensions.I >= policy.public.general.I && input.dimensions.D >= policy.public.general.D
       && (!scored.heatCompensated || scored.B >= policy.public.general.compensatedB);
+    if (!selected && input.modelRelease === true && input.dimensions.I >= 60 && input.dimensions.D >= 55)
+      return { ...scored, route: "model_release", reasonCodes: ["grounded_model_release"] };
     return { ...scored, route: selected ? "general_ai_selected" : "excluded", reasonCodes: selected ? ["general_ai_selected"] : ["general_ai_not_qualified"] };
   }
   const ordinary = scored.S >= policy.public.selected.S && scored.B >= policy.public.selected.B

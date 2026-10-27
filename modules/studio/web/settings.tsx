@@ -33,16 +33,16 @@ const names = { xhs: "小红书", douyin: "抖音", kuaishou: "快手", bilibili
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const section = params.section ?? "models";
   if (!sections.some(([id]) => id === section)) throw new Response("设置页面不存在", { status: 404 });
-  const [sessions, plan, skills, columns, connection, operations, usage, history, budget, collection, filtering] = await Promise.all([adminGet<{ rows: PlatformSession[] }>(request, "/api/admin/studio/platform-sessions"),
+  const [sessions, plan, skills, columns, connection, operations, usage, history, budget, collection, filtering, basicConnection] = await Promise.all([adminGet<{ rows: PlatformSession[] }>(request, "/api/admin/studio/platform-sessions"),
     adminGet<TopicPlan>(request, "/api/admin/studio/topic-plan"), adminGet<{ rows: WritingSkill[] }>(request, "/api/admin/studio/writing-skills"), adminGet<TopicColumns>(request, "/api/admin/studio/columns"),
     adminGet<ModelConnection>(request, "/api/admin/studio/model-connection"), adminGet<ModelOperations>(request, "/api/admin/studio/model-operations"), adminGet<ModelUsage>(request, "/api/admin/studio/model-usage"),
     adminGet<HistorySettings>(request, "/api/admin/studio/history-settings"), adminGet<ModelBudgetSettings>(request, "/api/admin/studio/model-budget"),
-    adminGet<CollectionOperations>(request, "/api/admin/studio/collection-operations"), adminGet<{ policy: FilterPolicy }>(request, "/api/admin/studio/filter-settings")]);
+    adminGet<CollectionOperations>(request, "/api/admin/studio/collection-operations"), adminGet<{ policy: FilterPolicy }>(request, "/api/admin/studio/filter-settings"), adminGet<ModelConnection>(request, "/api/admin/studio/model-basic-connection")]);
   const processing = section === "processing" ? await loadTopicProcessing(request) : null;
   const query = new URL(request.url).searchParams;
   const visitors = section === "visitors" ? await adminGet<VisitorStats>(request, `/api/admin/studio/visitors?${new URLSearchParams([...query].filter(([key]) => ["from", "to"].includes(key)))}`) : null;
   const site = section === "site" ? await Promise.all([adminGet<SiteManagement>(request, "/api/admin/studio/site-management"), adminGet<FilmBoardsPage>(request, "/api/admin/studio/film-boards"), adminGet<DailyEditionPage>(request, "/api/admin/studio/daily-editions"), adminGet<AdminFeedback>(request, `/api/admin/feedback?${new URLSearchParams({ page: query.get("page") ?? "1", ...(query.get("status") ? { status: query.get("status")! } : {}), q: query.get("q") ?? "" })}`)]) : null;
-  return { ...sessions, section, plan, skills: skills.rows, columns: columns.rows, connection, operations, usage, history, budget, collection, processing, filtering, visitors, site: site ? { site: site[0], films: site[1], daily: site[2], feedback: site[3] } : null };
+  return { ...sessions, section, plan, skills: skills.rows, columns: columns.rows, connection, basicConnection, operations, usage, history, budget, collection, processing, filtering, visitors, site: site ? { site: site[0], films: site[1], daily: site[2], feedback: site[3] } : null };
 };
 export const meta = () => [{ title: `设置 · ${SITE.name}` }, { name: "robots", content: "noindex, nofollow" }];
 export const headers = () => ({ "Cache-Control": "no-store" });
@@ -79,13 +79,13 @@ function SessionRow({ session }: { session: PlatformSession }) {
 }
 
 export default function Settings() {
-  const { rows, section, plan, skills, columns, connection, operations, usage, history, budget, collection, processing, filtering, visitors, site } = useLoaderData<typeof loader>();
+  const { rows, section, plan, skills, columns, connection, basicConnection, operations, usage, history, budget, collection, processing, filtering, visitors, site } = useLoaderData<typeof loader>();
   return <>
     <header className="studio-page-header"><div><h1>设置</h1><p>{sections.find(([id]) => id === section)?.[1]}</p></div><Link className="studio-button" to="/admin/studio/creators">返回博主关注</Link></header>
     <div className="studio-settings-grid"><nav className="studio-settings-nav" aria-label="设置分类">
       {sections.map(([id, name]) => <Link key={id} to={`/admin/studio/settings/${id}`} aria-current={section === id ? "page" : undefined}>{name}</Link>)}
     </nav><div className="studio-settings-content">
-    <div hidden={section !== "models"}><ModelConnectionSettings key={connection.version} connection={connection} operations={operations} usage={usage} budget={budget} /></div>
+    <div hidden={section !== "models"}><ModelConnectionSettings key={connection.version} connection={connection} basicConnection={basicConnection} operations={operations} usage={usage} budget={budget} /></div>
     <div hidden={section !== "collection"}><CollectionTaskControl operations={collection} /></div>
     <div hidden={section !== "filters"}><FilterSettings initial={filtering.policy} columns={columns} /></div>
     {section === "trends" && <TrendSettingsPanel />}

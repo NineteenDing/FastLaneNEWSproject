@@ -18,7 +18,7 @@ import type { TopicBatchMaterial, TopicColumn } from "../contracts.ts";
 
 export const legacyMaterialAnalysisCachePolicy = "material-cache-v1:media-observations-v1";
 export const materialAnalysisCachePolicy = "shared-content-v2:media-observations-v1:editorial-v2.0";
-export type MaterialAnalysisSnapshot = { evidence: TopicBatchMaterial; columns: TopicColumn[]; audience: string; insightPolicy?: string; sharedPolicy?: string };
+export type MaterialAnalysisSnapshot = { evidence: TopicBatchMaterial; columns: TopicColumn[]; audience: string; insightPolicy?: string; sharedPolicy?: string; requireChineseTitle?: boolean };
 export type MaterialAnalysisData = z.infer<typeof assessment> & { entities?: z.infer<typeof historyEntitySchema>; insights?: z.infer<typeof materialInsightsSchema>; shared?: SharedMaterial; classificationReceiptId?: number };
 
 /** Only operational fields are omitted. All facts, comments, observations and rule versions remain. */
@@ -162,6 +162,11 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
     schema: z.preprocess(value => groundBodyQuoteTypography(value, evidence.body), assessment.extend({ entities: historyEntitySchema.optional(), insights: insightPolicy ? materialInsightsSchema.optional() : z.never().optional(),
       ...rootSharedExtras,
       shared: context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialSchema.optional() : z.never().optional() }).superRefine((value, ctx) => {
+      if (context.requireChineseTitle && evidence.kind === "news" && !/[\u3400-\u9fff]/.test(evidence.title)
+        && !/[\u3400-\u9fff]/.test(value.shared?.titleZh ?? value.titleZh ?? ""))
+        ctx.addIssue({code:"custom",message:"新入站外文新闻必须在同次初筛提供中文titleZh，与是否公开无关",path:["shared","titleZh"]});
+      if (context.requireChineseTitle && context.sharedPolicy === materialAnalysisCachePolicy && !value.shared)
+        ctx.addIssue({code:"custom",message:"新入站材料必须提供完整共享分析对象",path:["shared"]});
       if (!columns.some(column => column.enabled && column.id === value.columnId))
         ctx.addIssue({ code: "custom", message: "必须使用快照中启用的栏目", path: ["columnId"] });
       if (value.evidenceQuotes.some(quote => !evidence.body.includes(quote)) || value.gates.evidence && !value.evidenceQuotes.length)

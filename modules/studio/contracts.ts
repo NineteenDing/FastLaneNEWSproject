@@ -71,7 +71,7 @@ export interface FilterMaterialScore {
   freshness: { at: string | null; basis: "event_evidence" | "unknown"; precision: EventTime["precision"] | null; ageHours: number | null; value: number | null };
   heat: EventHeat | null; breakout: EventObservation["breakout"] | null;
   columnMatches: Array<{ columnId: string; value: number; reason: string; publicColumn: FilterPolicy["columnMapping"][string] }>;
-  route?: "direct_all" | "direct_selected" | "major_event" | "verified_breakout" | "general_ai_selected" | "market_reference" | "excluded" | "pending" | "private";
+  route?: "model_release" | "direct_all" | "direct_selected" | "major_event" | "verified_breakout" | "general_ai_selected" | "market_reference" | "excluded" | "pending" | "private";
   eligiblePublic?: boolean; eligibleSelected?: boolean; base?: number; B?: number; interval?: [number, number];
   heatState?: "complete" | "partial" | "unknown"; heatObserved?: number | null; heatFresh?: number | null; heatDecision?: number; heatCompensated?: boolean;
   summaryState?: "ok" | "pending" | "missing"; reasonCodes?: string[];
@@ -130,6 +130,7 @@ export interface CreatorExpressions {
 }
 
 export interface IntelligenceRow {
+  originalTitle?: string;
   match?: IntelligenceMatch;
   id: string; kind: "news" | NonNullable<CreatorContent["kind"]>; title: string; excerpt: string;
   publishedAt: string | null; collectedAt: string; updatedAt: string;

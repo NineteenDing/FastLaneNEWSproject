@@ -131,3 +131,13 @@ test("缺测和区间契约只接受合法组合", () => {
   assert.throws(() => heatSnapshot({ canonicalEventId: "e", asOf: new Date().toISOString(), observationScope: "public", state: "unknown", observed: 50, freshObserved: null }));
   assert.throws(() => heatSnapshot({ canonicalEventId: "e", asOf: new Date().toISOString(), observationScope: "public", state: "partial", observed: 40, freshObserved: 50 }));
 });
+
+test("正文已确认的新模型发布有独立公开路径，不因缺失热度或影视实操影响分被全挡", () => {
+ const result=routePublic({dimensions:dims(70,50,85,55,60),observed:null,freshObserved:null,state:"unknown",
+  scope:"general_ai",aiCentral:true,filmRelevant:false,factsAvailable:true,modelRelease:true});
+ assert.equal(result.route,"model_release");
+});
+
+test("模型发布兜底不得把原已满足的通用AI精选降级",()=>{
+ assert.equal(routePublic({dimensions:dims(95,95,95,90,100),observed:90,freshObserved:90,state:"complete",scope:"general_ai",aiCentral:true,factsAvailable:true,modelRelease:true}).route,"general_ai_selected");
+});

@@ -102,7 +102,7 @@ export async function scheduleLiveMaterialAnalyses() {
           WHERE material_id = ${item.materialId} AND source_key = ${item.sourceKey}`;
         continue;
       }
-      const snapshot: MaterialAnalysisSnapshot = { evidence: row.evidence, columns, audience: topicAudience, insightPolicy: materialInsightPolicy, sharedPolicy: materialAnalysisCachePolicy };
+      const snapshot: MaterialAnalysisSnapshot = { evidence: row.evidence, columns, audience: topicAudience, insightPolicy: materialInsightPolicy, sharedPolicy: materialAnalysisCachePolicy, requireChineseTitle: true };
       const jobId = await enqueueOn(topicAnalysisQueue, { live: { materialId: item.materialId, sourceKey: item.sourceKey } },
         { singletonKey: `live:${item.materialId}:${item.sourceKey}`, group: { id: "topic-material-analysis" } }, db);
       if (!jobId) continue;

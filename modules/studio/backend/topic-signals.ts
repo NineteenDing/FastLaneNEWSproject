@@ -1,3 +1,4 @@
+import { verifiedModelLaunch, editorialEvidenceScope } from "./editorial-evidence.ts";
 import { verifiedMemeEvidence } from "./shared-material.ts";
 import type { EditorialPolicyV2, EditorialScopeV2, EventPropagationRules, FilterPolicy, SharedTopicSignals, TopicBatchMaterial, TopicMaterialAnalysis } from "../contracts.ts";
 import { defaultEventPropagationRules, eventHeat, eventHeatV2, observeEvent, resolveEventTime, type PropagationRow } from "./event-propagation.ts";
@@ -8,7 +9,7 @@ import { platformAttention } from "./platform-attention.ts";
 type Material = { material: TopicBatchMaterial; analysis: TopicMaterialAnalysis | null };
 
 const scopeOf = (shared: NonNullable<TopicMaterialAnalysis["shared"]>): EditorialScopeV2 =>
-  shared.editorialScope ?? (shared.scope === "direct" ? "direct_ai_film" : shared.scope === "important_ai" ? "general_ai"
+  editorialEvidenceScope(shared).scope ?? (shared.scope === "direct" ? "direct_ai_film" : shared.scope === "important_ai" ? "general_ai"
     : shared.scope === "unrelated" ? "unrelated" : "uncertain");
 const legacyScope = (scope: EditorialScopeV2): SharedTopicSignals["candidates"][number]["scope"] =>
   scope === "direct_ai_film" ? "direct" : scope === "unrelated" ? "unrelated" : scope === "uncertain" ? "uncertain" : "important_ai";
@@ -82,11 +83,11 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
     // Internal semantic qualification only; publication permission, publicSummary and page windows are skipped here.
     const route = complete ? routePublic({ dimensions: { I, M, D, P, F }, observed: heat.heatObserved ?? null,
       freshObserved: heat.heatFresh ?? null, state: heat.heatState ?? "unknown", scope, aiCentral: shared.aiCentral,
-      filmRelevant: shared.filmRelevant, factsAvailable: available, major, breakout: event.breakout.triggered, policy: editorial }).route : "pending";
+      filmRelevant: editorialEvidenceScope(shared).filmRelevant, modelRelease: verifiedModelLaunch(shared), factsAvailable: available, major, breakout: event.breakout.triggered, policy: editorial }).route : "pending";
     const path = !v2 ? (!available || !["direct", "important_ai"].includes(legacyScope(scope)) ? null
       : event.breakout.triggered ? "breakout" as const : scope === "general_ai" ? "important_ai" as const
       : row.analysis!.gates?.benefit === true ? "direct" as const : null)
-      : !selectedRoutes.includes(route) ? route === "direct_all" ? "direct" as const : null
+      : !selectedRoutes.includes(route) ? ["direct_all","model_release"].includes(route) ? "direct" as const : null
       : route === "major_event" ? "major_event" as const : route === "verified_breakout" ? "breakout" as const
       : route === "general_ai_selected" ? "general_ai" as const : route === "market_reference" ? "market_reference" as const : "direct" as const;
     return { materialId: row.material.id, eventId: event.id, scope: legacyScope(scope), editorialScope: scope, evidenceAvailable: available,

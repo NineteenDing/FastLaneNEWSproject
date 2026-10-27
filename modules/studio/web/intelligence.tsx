@@ -133,7 +133,7 @@ export default function Intelligence() {
       <SourceAvatar key={row.source.avatarUrl} source={row.source} />
       <Link className="studio-material-link" to={`/admin/studio/intelligence/${encodeURIComponent(row.id)}?${query}${row.match ? "#intelligence-search-match" : ""}`} onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0) { event.preventDefault(); setReading(row.id); } }}>
         <span className="studio-caption"><SearchText text={row.source.name} query={search.get("q") ?? ""} /> · {platforms[row.source.platform]} · {kinds[row.kind]}</span>
-        <h2><SearchText text={row.title} query={search.get("q") ?? ""} /></h2><p className="studio-material-excerpt">{row.match && !["title", "source"].includes(row.match.field) ? <>{matchLabels[row.match.field]}：<SearchText text={row.match.text} query={search.get("q") ?? ""} /></> : row.excerpt || "来源暂无简介，可进入详情查看原文。"}</p>
+        <h2><SearchText text={row.title} query={search.get("q") ?? ""} /></h2>{row.originalTitle && <p className="studio-caption" lang="en">{row.originalTitle}</p>}<p className="studio-material-excerpt">{row.match && !["title", "source"].includes(row.match.field) ? <>{matchLabels[row.match.field]}：<SearchText text={row.match.text} query={search.get("q") ?? ""} /></> : row.excerpt || "来源暂无简介，可进入详情查看原文。"}</p>
         {row.source.work && <span className="studio-caption">同作品 {row.source.work.publicationCount} 条发布 · 进入查看各平台表现</span>}
         <span className="studio-material-meta"><span>发布：{date(row.publishedAt)}</span><span>{metrics(row)}</span></span>
         <span className="studio-caption">{processingLabels[row.processingState] ?? "处理状态待确认"} · {initialAnalysisLabel(row.analysisState)}</span>
