@@ -53,7 +53,8 @@ export async function submitTopicAnalysis(batchId: string, actor: string, option
       a.material_id IS NULL AS fresh, a.entity_policy AS "entityPolicy", a.cache_policy AS "cachePolicy", a.insight_policy AS "insightPolicy" FROM (${batchEvidence(db, batchId)}) m
       LEFT JOIN studio_topic_material_analyses a ON a.batch_id = ${batchId} AND a.material_id = m.material_id
       LEFT JOIN pgboss.job j ON j.name = ${topicAnalysisQueue.name} AND j.id = a.job_id
-      WHERE (${options.materialIds===undefined} OR m.material_id=ANY(${options.materialIds??[]}::text[])) AND (a.material_id IS NULL OR (${options.retryFailed ?? false}
+      WHERE m.evidence->>'bodyState'=ANY(ARRAY['ok','collected','transcribed']) AND length(trim(coalesce(m.evidence->>'body','')))>0
+        AND (${options.materialIds===undefined} OR m.material_id=ANY(${options.materialIds??[]}::text[])) AND (a.material_id IS NULL OR (${options.retryFailed ?? false}
         AND a.result IS NULL AND (j.id IS NULL OR j.state IN ('failed', 'cancelled', 'completed'))))
       ORDER BY m.collected_at, m.material_id LIMIT 100`;
     const jobIds: string[] = [];
@@ -93,6 +94,7 @@ export async function scheduleTopicMaterialAnalyses() {
     const failed=await sql<{id:string}[]>`SELECT l.material_id AS id FROM studio_live_material_analyses l JOIN studio_history_index h
       ON h.material_id=l.material_id AND h.knowledge->>'sourceKey'=l.source_key WHERE l.state='failed' AND l.result IS NULL
       AND h.collected_at>=${window.startsAt} AND h.collected_at<${window.endsAt}
+      AND NOT EXISTS(SELECT 1 FROM studio_topic_batch_materials m WHERE m.material_id=l.material_id AND m.source_key=l.source_key)
       AND NOT EXISTS(SELECT 1 FROM studio_cutoff_recoveries r WHERE r.window_start=${window.startsAt} AND r.material_id=l.material_id AND r.source_key=l.source_key)
       ORDER BY h.collected_at LIMIT 20`;
     for(const row of failed)try{await retryLiveMaterialAnalysis(row.id,'system:topic-cutoff-retry',{automaticWindow:window.startsAt});}catch(error){if(!(error instanceof Conflict))throw error;}
@@ -145,6 +147,11 @@ async function analyze(job: BatchJob) {
     SELECT m.evidence, b.columns, b.audience FROM (${batchEvidence(sql, job.batchId)}) m JOIN studio_topic_batches b ON b.id = ${job.batchId}
     WHERE m.material_id = ${job.materialId}`;
   if (!row) throw new Error("冻结材料不存在");
+  if(!['ok','collected','transcribed'].includes(row.evidence.bodyState)||!row.evidence.body.trim()){
+    await sql`UPDATE studio_topic_material_analyses SET state='failed',error='正文或转写未取得，未发送模型；请重新获取正文供后续处理',updated_at=now()
+      WHERE batch_id=${job.batchId} AND material_id=${job.materialId} AND result IS NULL`;
+    return;
+  }
   const extractEntities = job.entityPolicy === historyEntityPolicy;
   await sql`UPDATE studio_topic_material_analyses SET state = 'running', error = NULL, updated_at = now()
     WHERE batch_id = ${job.batchId} AND material_id = ${job.materialId}`;

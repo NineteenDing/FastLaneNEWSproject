@@ -1,5 +1,11 @@
 import type { SharedMaterial } from "./shared-material.ts";
 
+/** Observed authoritative-platform heat only: never an imputed view count or missing-data placeholder. */
+export function verifiedAttentionBreakout(shared:SharedMaterial,platformHeat:number|null){
+ return shared.aiCentral===true&&['direct_ai_film','general_ai'].includes(shared.editorialScope??'')&&shared.facts.length>0
+  &&platformHeat!==null&&platformHeat>=50&&(shared.v2?.I.value??0)>=65&&(shared.v2?.D.value??0)>=55&&(shared.v2?.E.value??0)>=70;
+}
+
 /** Uses already-grounded facts, never a title or source reputation as the event itself. */
 export function verifiedModelLaunch(shared: SharedMaterial | null | undefined) {
  if (!shared || shared.aiCentral !== true || (shared.v2?.E.value ?? 0) < 60 || shared.facts.length < 2) return false;

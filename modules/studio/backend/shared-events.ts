@@ -13,6 +13,7 @@ import { eventHeat, eventHeatV2, observeEvent, resolveEventTime, type Propagatio
 import { currentFilterPolicy } from "./filter-settings.ts";
 import { verifiedMemeEvidence } from "./shared-material.ts";
 import { DEFAULT_EDITORIAL_V2, type HeatSnapshotV2 } from "./editorial-v2.ts";
+import {verifiedAttentionBreakout} from './editorial-evidence.ts';
 
 /** Freeze the bounded recall once, before paying. Recovery uses exactly the same provider request. */
 export async function sharedAnalysisUser(key: string, user: string, material: TopicBatchMaterial) {
@@ -110,8 +111,9 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
     const evidenceTimes = times.filter(row => row.eventId === event.id), resolved = resolveEventTime(evidenceTimes);
     const rules = { ...policy.propagation, independentReports: editorial.breakout.reports, observedViews: editorial.breakout.views, independentAuthors: editorial.breakout.authors };
     const observation = observeEvent(members, qualified, asOf.toISOString(), rules, editorial.breakout.freshHours);
-    if (qualified && trends.breakout) observation.breakout = { triggered: true, candidate: true,
-      reasons: [...observation.breakout.reasons, trends.topTen?'platform_top_ten':"independent_platform_trends"] };
+    const strongAttention=verifiedAttentionBreakout(event.evidence,trends.observed);
+    if (qualified && (trends.breakout||strongAttention)) observation.breakout = { triggered: true, candidate: true,
+      reasons: [...observation.breakout.reasons, trends.topTen?'platform_top_ten':trends.breakout?'independent_platform_trends':'strong_platform_attention'] };
     result.set(event.id, { event: { id: event.id, label: event.label, time: resolved, timeConflict: evidenceTimes.some(row => !!row.time) && resolved === null },
       ...observation, heat: eventHeat(members, asOf.toISOString(), policy.heat), heatV2 });
   }
