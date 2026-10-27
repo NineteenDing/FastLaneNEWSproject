@@ -74,18 +74,22 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
     const key = logicalKeyFor({service:"llm",model,purpose:options.purpose,subject:options.subject,attemptTag:options.attemptTag,
       identity:{model,promptVersion:options.promptVersion,system:sha256(options.system),user:sha256(options.user),temperature:options.temperature??0.2,
         maxTokens:Math.max(options.maxTokens??1500,512)+(shortStructured?0:4000),extra,connection:connectionId}});
-    const rows = await sql<{id:number;response:{choices?:Array<{message?:{content?:string}}>};usage:Record<string,unknown>|null}[]>`SELECT id,response,usage FROM receipts
-      WHERE purpose=${options.purpose} AND subject=${options.subject} AND model=${model} AND status='failed'
-        AND error LIKE 'unusable output:%' AND response IS NOT NULL AND (logical_key=${key}
+    const rows = await sql<{id:number;status:string;response:{choices?:Array<{message?:{content?:string}}>}|null;usage:Record<string,unknown>|null}[]>`SELECT id,status,response,usage FROM receipts
+      WHERE purpose=${options.purpose} AND subject=${options.subject} AND model=${model}
+        AND (status IN('pending','unknown','received','completed') OR status='failed' AND error LIKE 'unusable output:%') AND (logical_key=${key}
           OR (${sameMaterialIdentity}
-            AND request->>'userHash'=${sha256(options.user)})) ORDER BY id DESC LIMIT 4`;
+            AND request->>'userHash'=${sha256(options.user)})) ORDER BY (status IN('pending','unknown')) DESC,id DESC LIMIT 12`;
+    let unresolved=false;
     for (const row of rows) {
+      if(['pending','unknown'].includes(row.status)){unresolved=true;continue;}
       try {
-        const text=row.response.choices?.[0]?.message?.content??"", start=text.indexOf("{"), end=text.lastIndexOf("}");
+        const text=row.response?.choices?.[0]?.message?.content??"", start=text.indexOf("{"), end=text.lastIndexOf("}");
         const parsed=options.schema.safeParse(options.parse?options.parse(text):JSON.parse(escapeControlCharsInStrings(text.slice(start,end+1))));
         if (parsed.success) return {data:parsed.data,receiptId:Number(row.id),reused:true,model,usage:row.usage};
       } catch { /* Invalid saved output still requires an explicit bounded retry. */ }
+      if(['received','completed'].includes(row.status))unresolved=true;
     }
+    if(unresolved)throw new QueueDeferred('同一冻结输入已有未确认或待恢复回执，不因输出额度或模板变化重复调用');
   }
   const activeConnection = connection;
   await beforeCall();
