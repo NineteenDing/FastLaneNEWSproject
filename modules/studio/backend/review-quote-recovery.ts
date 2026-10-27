@@ -1,4 +1,10 @@
 import {groundBodyQuoteTypography} from './material-quote-grounding.ts';
+export function groundDraftQuotes(value:unknown,bodies:Map<string,string>):unknown{
+ if(!value||typeof value!=='object'||!Array.isArray((value as any).recommendation?.directions))return value;
+ const root=value as any;return{...root,recommendation:{...root.recommendation,directions:root.recommendation.directions.map((direction:any)=>({...direction,
+  references:Array.isArray(direction.references)?direction.references.map((ref:any)=>{const body=bodies.get(ref?.materialId);return body&&typeof ref?.quote==='string'?{...ref,quote:groundBodyQuoteTypography({quote:ref.quote},body).quote}:ref;}):direction.references
+ }))}};
+}
 /** Optional support citations may be absent; they must never turn an unsupported claim into a verified fact. */
 export function groundResolutionQuotes(value:unknown,bodies:Map<string,string>):unknown{
  if(!value||typeof value!=='object'||!Array.isArray((value as any).resolutions))return value;

@@ -14,7 +14,7 @@ import { createDatabaseResourceMonitor } from "./database-resources.ts";
 import { topicRecommendations, topicDraftSchema, scoreTopicDraft } from "./topic-directions.ts";
 import { modelMaterial } from "./model-material.ts";
 import {rankingForModel,draftForModel} from './topic-model-context.ts';
-import {groundResolutionQuotes} from './review-quote-recovery.ts';
+import {groundResolutionQuotes,groundDraftQuotes} from './review-quote-recovery.ts';
 import {parseMaterialJson} from './material-wire.ts';
 import { frozenTopicHistory } from "./topic-history.ts";
 import { rankingRulesFor } from "./topic-ranking.ts";
@@ -122,11 +122,11 @@ async function step<S extends z.ZodType>(batchId: string, name: string, input: u
     await db`INSERT INTO studio_topic_review_steps(batch_id,step,input_hash,result,receipt_id) VALUES(${batchId},${name},${hash},${db.json(data as never)},${receiptId})`;
     await completeReceipt(db,receiptId);
   });return data;}
-  if(normalize){const prior=await sql<{id:number;response:{choices?:Array<{message?:{content?:string}}>}}[]>`SELECT id,response FROM receipts
+  {const prior=await sql<{id:number;response:{choices?:Array<{message?:{content?:string}}>}}[]>`SELECT id,response FROM receipts
     WHERE purpose='studio_topic_review' AND subject=${`studio-batch:${batchId}:review:${name}`} AND model='deepseek-flash'
       AND request->>'userHash'=${sha256(wire)} AND status='failed' AND error LIKE 'unusable output:%' AND response IS NOT NULL ORDER BY id DESC LIMIT 4`;
     for(const receipt of prior){let parsed;
-      try{parsed=schema.safeParse(normalize(parseMaterialJson(receipt.response.choices?.[0]?.message?.content??'')));}
+      try{const raw=parseMaterialJson(receipt.response.choices?.[0]?.message?.content??'');parsed=schema.safeParse(normalize?normalize(raw):raw);}
       catch{continue;/* Invalid core evidence and coverage still cannot be recovered. */}
       if(parsed.success)return persist(parsed.data,receipt.id);
     }}
@@ -139,7 +139,7 @@ async function step<S extends z.ZodType>(batchId: string, name: string, input: u
         ? "反馈只作为有界表达偏好，不改变事实与证据门槛，不在基础分里重复加入偏好。" : "") +
       instruction + (parts?'本次只核对parts中的片段。checkedParts必须逐字复制expectedCheckedParts，禁止附加“全文”等说明。materialIds是整期目录，不是本包必须覆盖的清单；其他正文由其他包核对，不要因本包未附其他材料而报告全期缺失。意见必须基于本包实际提供的证据。':'')+
       "只返回匹配schema的JSON，理由简明，不重复复述材料：" + JSON.stringify(z.toJSONSchema(schema)), user: wire, schema,
-      ...(normalize?{parse:(text:string)=>normalize(parseMaterialJson(text))}:{}),
+      parse:(text:string)=>{const raw=parseMaterialJson(text);return normalize?normalize(raw):raw;},
       maxTokens:['revise','adjudicate'].includes(name)?16000:8000 });
   return persist(output.data,output.receiptId);
 }
@@ -230,7 +230,7 @@ async function review({ batchId }: Job) {
           references: current.directions.flatMap(direction => direction.references) };
       }
       const revised = await step(batchId, task, revisionInput, revisionValidation, round === 1 ? "依据本轮意见修订，逐条判断采纳并保留理由。" :
-        "这是最终意见裁决和修订，不是第三轮审核。不向用户提问。合并两轮全部意见，逐项采纳/部分采纳/不采纳并说明理由。事实和来源优先，其次用户规则、观众价值、表达偏好；不能丢掉首轮有效事实问题。无法解决的事实删去、降级或标待证实，最后输出完整推荐。");
+        "这是最终意见裁决和修订，不是第三轮审核。不向用户提问。合并两轮全部意见，逐项采纳/部分采纳/不采纳并说明理由。事实和来源优先，其次用户规则、观众价值、表达偏好；不能丢掉首轮有效事实问题。无法解决的事实删去、降级或标待证实，最后输出完整推荐。",value=>groundDraftQuotes(value,new Map(allRows.map(row=>[row.material.id,row.material.body]))));
       current = scoreTopicDraft(revised.recommendation, rows, background, ranking?.context); finalDecisions = revised.decisions; finalSummary = revised.summary;
     }
     // After a second round, adjudication may change the reviewed version; no third review is allowed.

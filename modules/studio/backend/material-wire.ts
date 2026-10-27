@@ -1,3 +1,4 @@
+import {jsonrepair} from 'jsonrepair';
 /** The wire contract is independent of model/provider and of the scoring weights. */
 const dim=(reason:string)=>({value:60,reason});
 const v2dim=(reason:string)=>({...dim(reason),factIds:[0]});
@@ -22,6 +23,7 @@ export const materialWireInstructions='\n# 固定输出契约 v3\n只输出一�
 
 /** Tolerate only syntactic wrappers/control characters/trailing commas, never infer a missing claim. */
 export function parseMaterialJson(text:string):unknown {
+ if(text.length>200000)throw Error('结构化返回超过200000字符，未尝试修复');
  const begin=text.indexOf('{'),end=text.lastIndexOf('}');if(begin<0||end<begin)throw Error('缺少JSON对象');
  const raw=text.slice(begin,end+1);let out='',quoted=false,escaped=false;
  for(let i=0;i<raw.length;i++){
@@ -32,7 +34,7 @@ export function parseMaterialJson(text:string):unknown {
   else if(ch===','&&/^[\s]*[}\]]/.test(raw.slice(i+1)))continue;
   out+=ch;
  }
- return JSON.parse(out);
+ try{return JSON.parse(out);}catch{return JSON.parse(jsonrepair(out));}
 }
 const object=(value:unknown):Record<string,any>=>value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,any>:{};
 const pick=(value:unknown,keys:readonly string[])=>Object.fromEntries(Object.entries(object(value)).filter(([key])=>keys.includes(key)));

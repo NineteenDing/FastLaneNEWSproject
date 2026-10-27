@@ -16,6 +16,10 @@ test('模型契约兼容额外字段、数字布尔、根层v2与已知别名，
 test('JSON围栏和尾逗号可无损接收，字符串中的逗号与括号不能改变',()=>{
  assert.deepEqual(parseMaterialJson('```json\n{"summary":"保留 , } 原句", "facts":[],}\n```'),{summary:'保留 , } 原句',facts:[]});
 });
+test('修复缺失数组闭合等语法，保留新闻字符串和引用内容；超大返回不做修复',()=>{
+ assert.deepEqual(parseMaterialJson('{"facts":[{"quotes":["Original source sentence."}, {"quotes":["Second sentence."]}]}'),{facts:[{quotes:['Original source sentence.']},{quotes:['Second sentence.']}]});
+ assert.throws(()=>parseMaterialJson('{"summary":"'+'x'.repeat(200001)+'"}'));
+});
 test('冲突相关性不得强行补真值；非法分数和虚构引用仍交给严格校验',()=>{
  const raw:any=structuredClone(MATERIAL_OUTPUT_TEMPLATE);raw.shared.aiCentral=false;raw.shared.filmRelevant=false;
  const normalized:any=normalizeMaterialOutput(raw);assert.equal(normalized.shared.editorialScope,'uncertain');assert.equal(normalized.shared.aiCentral,false);
