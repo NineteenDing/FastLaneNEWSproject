@@ -11,3 +11,6 @@ export function rankingForModel(context:DirectionRankingContext|null|undefined){
 export function draftForModel(result:TopicRecommendationResult){
  return {directions:result.directions.map(({score:_score,...direction})=>direction),assignments:result.assignments};
 }
+export function factsForModel(context:DirectionRankingContext|null|undefined,ids:string[]){
+ return ids.flatMap(materialId=>{const facts=context?.materialAnalyses?.[materialId]?.shared?.facts;return facts?.length?[{materialId,facts:facts.map(({text,quotes})=>({text,quotes}))}]:[];});
+}

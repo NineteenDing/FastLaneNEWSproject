@@ -13,7 +13,7 @@ import { createDiskResourceMonitor } from "./disk-resources.ts";
 import { createDatabaseResourceMonitor } from "./database-resources.ts";
 import { topicRecommendations, topicDraftSchema, scoreTopicDraft } from "./topic-directions.ts";
 import { modelMaterial } from "./model-material.ts";
-import {rankingForModel,draftForModel} from './topic-model-context.ts';
+import {rankingForModel,draftForModel,factsForModel} from './topic-model-context.ts';
 import {groundResolutionQuotes,groundDraftQuotes} from './review-quote-recovery.ts';
 import {parseMaterialJson} from './material-wire.ts';
 import { frozenTopicHistory } from "./topic-history.ts";
@@ -204,6 +204,18 @@ async function review({ batchId }: Job) {
       });
       let revisionInput: object = { task, ...reviewBatch, recommendation: draftForModel(current), opinions: allOpinions, rounds, ...provenance, materials: allRows.map(row => ({ material: modelMaterial(row.material) })) };
       if (JSON.stringify(revisionInput).length > maxInputChars) {
+        const [completedRevision]=await sql`SELECT 1 FROM studio_topic_review_steps WHERE batch_id=${batchId} AND step=${task}`;
+        if(!completedRevision){
+          // Every body has already been audited in this round. Revise from those opinions and
+          // the frozen, quoted fact ledger; do not ask each partial packet to adjudicate ALL opinions.
+          const savedResolutions=await sql<{result:{resolutions?:unknown[]}}[]>`SELECT result FROM studio_topic_review_steps
+            WHERE batch_id=${batchId} AND left(step,length(${task+':evidence:'}))=${task+':evidence:'} ORDER BY step`;
+          revisionInput={task,...reviewBatch,recommendation:draftForModel(current),opinions:allOpinions,
+            rounds:rounds.map(({round,passed,summary})=>({round,passed,summary})),...provenance,
+            factEvidence:factsForModel(ranking?.context,rows.map(row=>row.material.id)),
+            evidenceResolutions:savedResolutions.flatMap(row=>row.result.resolutions??[]),references:current.directions.flatMap(direction=>direction.references),
+            evidenceUse:'本轮完整正文已由各审核包逐片核验。这里复用冻结事实引文和已有引用，不将审核意见当成新事实；未核实争议只能删除或降级，不得补造证据。所有最终引用必须逐字取自提供的事实引文或既有引用。'};
+        }else{
         const resolutionSchema = z.object({ checkedParts: z.array(text), resolutions: z.array(z.object({ opinionId: text,
           decision: z.enum(["accept", "partial", "reject"]), reason: text,
           quotes: z.array(z.object({ materialId: text, quote: text }).strict()),
@@ -228,6 +240,7 @@ async function review({ batchId }: Job) {
         }
         revisionInput = { task, ...reviewBatch, recommendation: draftForModel(current), opinions: allOpinions, rounds, evidenceResolutions, ...provenance,
           references: current.directions.flatMap(direction => direction.references) };
+        }
       }
       const revised = await step(batchId, task, revisionInput, revisionValidation, round === 1 ? "依据本轮意见修订，逐条判断采纳并保留理由。" :
         "这是最终意见裁决和修订，不是第三轮审核。不向用户提问。合并两轮全部意见，逐项采纳/部分采纳/不采纳并说明理由。事实和来源优先，其次用户规则、观众价值、表达偏好；不能丢掉首轮有效事实问题。无法解决的事实删去、降级或标待证实，最后输出完整推荐。",value=>groundDraftQuotes(value,new Map(allRows.map(row=>[row.material.id,row.material.body]))));
