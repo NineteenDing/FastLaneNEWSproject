@@ -150,6 +150,7 @@ const rootExtraKeys = Object.keys(rootSharedExtras) as Array<keyof typeof rootSh
 
 async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelIdentity: string, subject: string, insightPolicy?: string, beforeCall?: () => Promise<void>, candidateIds: string[] = []) {
   const { evidence, columns } = context;
+  let discardedImpacts=0;
   const output = await studioChatJson("studioMaterialAnalysis", { purpose: "studio_material_analysis",
     subject, expectedIdentity: modelIdentity,
     promptVersion: `${materialScoringPolicy.version}:${historyEntityPolicy}:${context.sharedPolicy === materialAnalysisCachePolicy ? materialAnalysisCachePolicy : legacyMaterialAnalysisCachePolicy}` + (insightPolicy ? ":" + insightPolicy : ""),
@@ -163,7 +164,16 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
       (context.requireChineseTitle&&context.sharedPolicy===materialAnalysisCachePolicy&&!/[\u3400-\u9fff]/.test(evidence.title)?'\n本条原标题为外文。shared.titleZh必须是中文字符串，绝不能为null。输出前检查中文标题、JSON闭合和所有引句逐字对应原文。':''),
     user,
     parse:parseMaterialJson,
-    schema: z.preprocess(value => groundBodyQuoteTypography(normalizeMaterialOutput(value), evidence.body), assessment.extend({ entities: historyEntitySchema.optional(), insights: insightPolicy ? materialInsightsSchema.optional() : z.never().optional(),
+    schema: z.preprocess(value => {
+      const normalized=groundBodyQuoteTypography(normalizeMaterialOutput(value), evidence.body) as {insights?:{impacts?:Array<{evidenceQuotes?:unknown}>}};
+      discardedImpacts=0;
+      if(Array.isArray(normalized?.insights?.impacts)){
+        const before=normalized.insights.impacts;
+        normalized.insights.impacts=before.filter(impact=>['ok','collected','transcribed'].includes(evidence.bodyState)&&Array.isArray(impact.evidenceQuotes)&&impact.evidenceQuotes.length>0&&impact.evidenceQuotes.every(quote=>typeof quote==='string'&&evidence.body.includes(quote)));
+        discardedImpacts=before.length-normalized.insights.impacts.length;
+      }
+      return normalized;
+    }, assessment.extend({ entities: historyEntitySchema.optional(), insights: insightPolicy ? materialInsightsSchema.optional() : z.never().optional(),
       ...rootSharedExtras,
       shared: context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialSchema.optional() : z.never().optional() }).superRefine((value, ctx) => {
       if (context.requireChineseTitle && context.sharedPolicy===materialAnalysisCachePolicy && evidence.kind === "news" && !/[\u3400-\u9fff]/.test(evidence.title)
@@ -189,7 +199,7 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
       if (value.insights?.impacts.length && (!["ok", "collected", "transcribed"].includes(evidence.bodyState)
         || value.insights.impacts.some(impact => impact.evidenceQuotes.some(quote => !evidence.body.includes(quote)))))
         ctx.addIssue({ code: "custom", message: "影响判断必须有完整正文或转写中的逐字依据", path: ["insights", "impacts"] });
-    })), maxTokens: 6000,
+    })), maxTokens: 10000,
   });
   let data = output.data.entities
     ? { ...output.data, entities: output.data.entities.filter(entity => entityGrounded(entity, evidence)) }
@@ -207,5 +217,6 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
     // Missing v2 fields stay a recorded gap; the current projection marks the item pending/private rather than
     // discarding an otherwise paid factual understanding.
   }
-  return { result: project(data, context), data, receiptId: output.receiptId, entities: data.entities };
+  const projected=project(data,context);
+  return { result:{...projected,gaps:[...projected.gaps,...(discardedImpacts?[`已忽略${discardedImpacts}条缺少逐字依据的可选影响推断；新闻事实仍经过校验`]:[])]}, data, receiptId: output.receiptId, entities: data.entities };
 }

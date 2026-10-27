@@ -23,7 +23,7 @@ export const sharedMaterialSchema = z.object({
   scope: z.enum(["direct", "important_ai", "unrelated", "uncertain"]), scopeReason: text, scopeQuotes: z.array(z.string().trim().min(1).max(600)).max(8),
   editorialScope: z.enum(["direct_ai_film", "general_ai", "non_ai_film", "unrelated", "uncertain"]).optional(),
   aiCentral: z.boolean().optional(), filmRelevant: z.boolean().optional(),
-  facts: z.array(z.object({ text, quotes }).strict()).max(16),
+  facts: z.array(z.object({ text, quotes }).strict()).max(32),
   publicDimensions: z.object({ practical: dimension, interest: dimension, substance: dimension }).strict(),
   impact: dimension.optional(),
   v2: z.object({ I: v2Dimension, M: v2Dimension, D: v2Dimension, P: v2Dimension, E: v2Dimension, X: v2Dimension }).strict().optional(),
