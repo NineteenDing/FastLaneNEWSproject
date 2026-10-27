@@ -103,6 +103,7 @@ export async function scheduleTopicMaterialAnalyses() {
   const batches = await sql<{ id: string }[]>`SELECT b.id FROM studio_topic_batches b
     WHERE (${automatic} OR b.root_batch_id IS NOT NULL OR EXISTS (SELECT 1 FROM studio_topic_material_analyses requested WHERE requested.batch_id = b.id))
       AND EXISTS (SELECT 1 FROM (${batchEvidence(sql)}) m WHERE m.batch_id = b.id
+        AND m.evidence->>'bodyState'=ANY(ARRAY['ok','collected','transcribed']) AND length(trim(coalesce(m.evidence->>'body','')))>0
         AND NOT EXISTS (SELECT 1 FROM studio_topic_material_analyses a WHERE a.batch_id = b.id AND a.material_id = m.material_id))
     ORDER BY b.ends_at, b.id LIMIT 5`;
   let queued = 0;
