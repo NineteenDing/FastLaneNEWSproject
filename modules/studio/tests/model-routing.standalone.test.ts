@@ -38,5 +38,5 @@ test("同一版本多篇有事实依据的发布报道可选一篇承接热榜�
  assert.equal(trendRepresentative("如何评价 OpenAI 发布的 GPT-6.1 Terra？",rows)?.id,"one");
  assert.equal(trendRepresentative("如何评价 OpenAI 发布的 GPT-6.1 Terra？",[rows[0]!,{...rows[1]!,linked:true}])?.id,"two","新短标题不能使仍有效的原代表换绑，给两个事件同时加热");
  assert.equal(trendRepresentative("如何看待 Kimi K3.1 Pro 开源版刻意削弱网安能力？",rows),null);
- assert.equal(trendRepresentative("如何评价 OpenAI 发布的 GPT-6.1 Terra？",[rows[0]!,{...rows[1]!,shared:{...shared,facts:[]}}]),null);
+ assert.equal(trendRepresentative("如何评价 OpenAI 发布的 GPT-6.1 Terra？",[rows[0]!,{...rows[1]!,shared:{...shared,facts:[]}}])?.id,"one","证据较少的转载不能阻断已有充分依据的发布代表");
 });

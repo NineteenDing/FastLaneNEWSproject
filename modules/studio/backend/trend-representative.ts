@@ -9,6 +9,6 @@ export function trendRepresentative<T extends { id: string; title: string; title
   // Several grounded reports of one precise model release are a choice of representative, not uncertain identity.
   // Controversies, reviews and mere announcements fail verifiedModelLaunch or the conservative headline matcher.
   const releases = matches.filter(row => verifiedModelLaunch(row.shared));
-  if (!releases.length || releases.length !== matches.length) return null;
+  if (!releases.length) return null;
   return releases.slice().sort((a,b) => Number(!!b.linked)-Number(!!a.linked) || a.title.length-b.title.length || a.id.localeCompare(b.id))[0]!;
 }
