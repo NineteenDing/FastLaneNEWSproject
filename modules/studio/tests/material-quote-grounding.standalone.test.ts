@@ -7,6 +7,10 @@ test("model evidence is restored to the unique literal source span when only hyp
  const result=groundBodyQuoteTypography({shared:{facts:[{quotes:["已保留 GPT-6 Astra 的防护措施。"]}]}},body);
  assert.deepEqual(result,{shared:{facts:[{quotes:["已保留 GPT‑6 Astra 的防护措施。"]}]}});
 });
+test('引号与不换行空格的排版差异只能恢复到唯一原文，不更改数字与原始事实',()=>{
+ const result=groundBodyQuoteTypography({evidenceQuotes:['“AI film” uses 32 GB']},'"AI film" uses 32\u00a0GB');
+ assert.deepEqual(result.evidenceQuotes,['"AI film" uses 32\u00a0GB']);
+});
 
 test("changed claims, numbers and mathematical dash characters remain ungrounded", () => {
  const body="销量为 100，区间 1–2，亏损 −5。";

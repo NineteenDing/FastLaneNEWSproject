@@ -3,7 +3,7 @@
  * remain unchanged and fail the existing literal grounding check. Comments retain their own source.
  */
 export function groundBodyQuoteTypography<T>(data: T, body: string): T {
-  const fold = (value: string) => value.replace(/[\u2010\u2011]/g, "-");
+  const fold = (value: string) => value.replace(/[\u2010\u2011]/g, "-").replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/\u00a0/g,' ');
   const foldedBody = fold(body);
   function anchor(quote: string) {
     if (body.includes(quote)) return quote;

@@ -21,3 +21,8 @@ test('冲突相关性不得强行补真值；非法分数和虚构引用仍交�
  const normalized:any=normalizeMaterialOutput(raw);assert.equal(normalized.shared.editorialScope,'uncertain');assert.equal(normalized.shared.aiCentral,false);
  raw.dimensions.audience=120;assert.equal(assessment.safeParse(normalizeMaterialOutput(raw)).success,false);
 });
+test('空的可选时间对象按未知处理；旧契约缺席shared不能被强制补出',()=>{
+ const raw:any=structuredClone(MATERIAL_OUTPUT_TEMPLATE);raw.shared.event.time={at:null,precision:null,quote:null};
+ const normalized:any=normalizeMaterialOutput(raw);assert.equal(normalized.shared.event.time,null);
+ delete raw.shared;assert.equal('shared' in (normalizeMaterialOutput(raw) as object),false);
+});

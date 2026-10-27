@@ -62,7 +62,7 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   const configuredPrice = capability === "studioReferenceVision" ? connection.visionPrice : connection.analysisPrice;
   const price = configuredPrice ?? (fromEnvironment || new URL(connection.baseUrl).origin === "https://api.deepseek.com" ? { inputPerMillion: 2, outputPerMillion: 8 } : null);
   if (!price) throw new Conflict("此服务或模型尚未配置费用估算，未开始模型请求");
-  const shortStructured = capability === "studioMaterialAnalysis" || capability === "studioReferenceVision" || options.subject.startsWith("studio-preview:");
+  const shortStructured = capability === "studioMaterialAnalysis" || capability === "studioReferenceVision" || capability==='studioTopicReview' || options.subject.startsWith("studio-preview:");
   const agnes = profile === "basic" && new URL(connection.baseUrl).hostname === "api.agnes-ai.cn";
   const extra = profile === "basic" ? (agnes ? { chat_template_kwargs: { enable_thinking: false } } : {}) : { thinking: { type: shortStructured ? "disabled" : "enabled" } };
   const connectionId = fromEnvironment ? `studio-environment:${environmentIdentity()}` : `studio-model-${profile === "basic" ? "basic-" : ""}connection:${connection.version}`;
@@ -90,7 +90,7 @@ export async function studioChatJson<S extends z.ZodType>(capability: Capability
   const activeConnection = connection;
   await beforeCall();
   return chatJson({ ...options, beforeCall, model: "studio-connection", connection: {
-    model, service: "llm", identity: connectionId, jsonMode: profile !== "basic", price, extra,
+    model, service: "llm", identity: connectionId, jsonMode: profile !== "basic"||agnes, price, extra,
     ...(!shortStructured ? { reasoningTokens: 4000 } : {}),
     async request(body, signal) {
       const serialized = JSON.stringify(body);

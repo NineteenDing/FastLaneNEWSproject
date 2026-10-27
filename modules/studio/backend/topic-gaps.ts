@@ -1,4 +1,4 @@
-import {z} from 'zod';import {sql} from '@aihot/backend/db';import {Conflict} from '@aihot/backend/audit';
+import {z} from 'zod';import {sql} from '@aihot/backend/db';import {Conflict,audit} from '@aihot/backend/audit';
 import {enqueue,QUEUES} from '@aihot/backend/jobs/queue';import {batchEvidence} from './topic-evidence.ts';
 import {submitTopicAnalysis} from './topic-material-analysis.ts';import {historyEvidenceKey} from './history-entities.ts';
 import type {TopicBatchMaterial,TopicGapReport,TopicRecommendationResult,DirectionRankingContext} from '../contracts.ts';
@@ -34,8 +34,9 @@ export async function recoverTopicMaterial(batchId:string,input:unknown,actor:st
  const articleId=q.materialId.slice(5);
  return sql.begin(async db=>{
   const changed=await db`UPDATE articles SET body_status='pending',processing_error=NULL,processing_retry_at=NULL WHERE id=${articleId} AND body_status<>'ok' RETURNING id`;
-  if(!changed.length)return{queued:false};
+  if(!changed.length)throw new Conflict('当前正文已取得，无需重复获取；本期冻结的历史版本保持原样。');
   const id=await enqueue(QUEUES.extractBody,{articleId},{singletonKey:'manual-body:'+articleId,retryLimit:0},db);
+  if(id)await audit(actor,'studio.topic.body.retry',q.materialId,null,null,{batchId,queued:true},{db});
   return{queued:!!id};
  });
 }

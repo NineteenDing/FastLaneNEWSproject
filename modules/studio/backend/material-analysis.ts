@@ -158,13 +158,15 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
       "依据保存的受众和栏目规则分配一个启用主栏目，未成题或证据不足仍需归类并说明。仅输出JSON：columnId,disposition(support/background/duplicate/not_topic/pending),summary,reason,viewerBenefit,event,evidenceQuotes,gates(audience/evidence/benefit),dimensions(audience/practical/evidence/freshness/demand/distinctiveness)。" +
       "六维0至100或未知null；需求只按实际可比较评论/相对表现/热榜判断，不能把原始播放量当跨平台热度。引用必须逐字来自body。无完整转写不声称理解全部视频；时间不明不冒充新热点。硬门槛先于热度。" +
       (evidence.suggestedColumnIds?.length ? "suggestedColumnIds是用户指定的补充候选栏目，优先评估匹配性；确实不适合时在reason说明，不降低事实和受众门槛。" : "") + historyEntityInstructions + (insightPolicy ? materialInsightInstructions : "") +
-      (context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialInstructions + materialWireInstructions + (!insightPolicy ? '\n本次未启用insights，省略insights字段。' : '') : ""),
+      (context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialInstructions + materialWireInstructions + (!insightPolicy ? '\n本次未启用insights，省略insights字段。' : '') : "")+
+      (evidence.kind==='news'?'\n新闻无需罗列推测影响；insights.impacts最多1项，没有必要则[]。必须先完成中文标题与核心事实，理由用简短单句。':'')+
+      (context.requireChineseTitle&&context.sharedPolicy===materialAnalysisCachePolicy&&!/[\u3400-\u9fff]/.test(evidence.title)?'\n本条原标题为外文。shared.titleZh必须是中文字符串，绝不能为null。输出前检查中文标题、JSON闭合和所有引句逐字对应原文。':''),
     user,
     parse:parseMaterialJson,
     schema: z.preprocess(value => groundBodyQuoteTypography(normalizeMaterialOutput(value), evidence.body), assessment.extend({ entities: historyEntitySchema.optional(), insights: insightPolicy ? materialInsightsSchema.optional() : z.never().optional(),
       ...rootSharedExtras,
       shared: context.sharedPolicy === materialAnalysisCachePolicy ? sharedMaterialSchema.optional() : z.never().optional() }).superRefine((value, ctx) => {
-      if (context.requireChineseTitle && evidence.kind === "news" && !/[\u3400-\u9fff]/.test(evidence.title)
+      if (context.requireChineseTitle && context.sharedPolicy===materialAnalysisCachePolicy && evidence.kind === "news" && !/[\u3400-\u9fff]/.test(evidence.title)
         && !/[\u3400-\u9fff]/.test(value.shared?.titleZh ?? value.titleZh ?? ""))
         ctx.addIssue({code:"custom",message:"新入站外文新闻必须在同次初筛提供中文titleZh，与是否公开无关",path:["shared","titleZh"]});
       if (context.requireChineseTitle && context.sharedPolicy === materialAnalysisCachePolicy && !value.shared)
