@@ -16,6 +16,7 @@ import { sanitizeBody, trimTrailingChrome } from "./sanitize.ts";
 import { contentHash, fillPublicationTime, reviseMaterial } from "./materials.ts";
 import { markdownBody } from "./markdown.ts";
 import {declaredArticleHtml} from './article-data.ts';
+import {credential} from '../config.ts';
 
 export interface ExtractedBody {
   html: string;
@@ -139,6 +140,7 @@ export async function extractFromUrl(url: string, subject: string, utcOffset?: s
     const entries=JSON.parse(r.text()).data?.articles,entry=Array.isArray(entries)?entries.find((e:{path?:string})=>e.path===target.searchParams.get('id')):null;
     if(typeof entry?.content==='string'){const html=trimTrailingChrome(sanitizeBody(entry.content,url)),text=stripTags(html);if(text.length>=MIN_BODY_CHARS)return{html,text,images:[],via:'publisher'};}
   }catch{}
+  if(!credential('collectors','JINA_API_KEY'))return null;
   try {
     const res = await guardedFetch(url, { timeoutMs: 20_000, maxBytes: 6 * 1024 * 1024,headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130.0.0.0 Safari/537.36','accept':'text/html,application/xhtml+xml'} });
     if (isVideoPageUrl(res.url)) return null;

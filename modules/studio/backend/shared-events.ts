@@ -111,7 +111,7 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
     const evidenceTimes = times.filter(row => row.eventId === event.id), resolved = resolveEventTime(evidenceTimes);
     const rules = { ...policy.propagation, independentReports: editorial.breakout.reports, observedViews: editorial.breakout.views, independentAuthors: editorial.breakout.authors };
     const observation = observeEvent(members, qualified, asOf.toISOString(), rules, editorial.breakout.freshHours);
-    const strongAttention=verifiedAttentionBreakout(event.evidence,trends.observed);
+    const strongAttention=members.some(member=>verifiedAttentionBreakout(member.shared,trends.observed));
     if (qualified && (trends.breakout||strongAttention)) observation.breakout = { triggered: true, candidate: true,
       reasons: [...observation.breakout.reasons, trends.topTen?'platform_top_ten':trends.breakout?'independent_platform_trends':'strong_platform_attention'] };
     result.set(event.id, { event: { id: event.id, label: event.label, time: resolved, timeConflict: evidenceTimes.some(row => !!row.time) && resolved === null },
