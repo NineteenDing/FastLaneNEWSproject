@@ -62,7 +62,7 @@ export function FilterSettings({ initial, columns }: { initial: FilterPolicy; co
     <form onSubmit={save}><fieldset disabled={busy} className="studio-filter-fields">
       {!v2 && <p className="studio-caption">当前版本缺少 editorial-v2 参数，请载入最新规则后再修改。</p>}
       <div className="studio-filter-policy-grid">
-        <section><h3>公开新闻 · editorial-v2</h3><p className="studio-caption">热度、兴趣、影响优先；精选不再要求实用或教程。符合范围但不够精选的新闻仍可进入全部动态。</p>
+        <section><h3>公开新闻 · editorial-v2</h3><p className="studio-caption">热度、兴趣、影响优先；精选不再要求实用或教程。符合范围但不够精选的新闻仍可进入全部动态。行业参考要求S≥50、I≥50、D≥50、E≥60，并受每日独立事件20%额度限制；试算显示语义资格，实际发布还检查额度。经核实的AI或影视出圈走独立通道，不受普通分数与参考额度限制。</p>
           <div className="studio-filter-numbers">{v2 && (["interest", "impact", "substance", "practical", "freshness", "heat"] as const).map(name => <div key={name}>{number(`${labels[name]}权重`, v2.public.weights[name],
             next => editEditorial({ ...v2, public: { ...v2.public, weights: { ...v2.public.weights, [name]: next } } }))}</div>)}</div>
           <p className="studio-caption">合计 {num(publicTotal, 1)} / 100</p>

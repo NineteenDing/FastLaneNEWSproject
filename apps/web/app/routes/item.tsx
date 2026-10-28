@@ -194,7 +194,7 @@ function ItemPreview({ preview }: { preview: FeedItemSummary }) {
           <span>·</span>
           {!preview.publishedAt && <span>收录于</span>}
           <time dateTime={shownAt} className="mono">{fullDateTime(shownAt)}</time>
-          {preview.selected && <span className="ml-1">{preview.sameEvent ? <SameEventBadge /> : <SelectedBadge />}</span>}
+          {(preview.selected || preview.publicLabel) && <span className="ml-1">{preview.sameEvent ? <SameEventBadge /> : <SelectedBadge label={preview.publicLabel} />}</span>}
           {shownScore(preview.score) !== null && (
             <span className="ml-1">
               <ScoreLabel score={preview.score} />
@@ -355,9 +355,9 @@ function ItemView({ item }: { item: SiteItemDetail }) {
       {moreMenu}
     </div>
   );
-  const verdict = (item.selected || shownScore(item.score) !== null) && (
+  const verdict = (item.selected || item.publicLabel || shownScore(item.score) !== null) && (
     <div className="flex items-center gap-2">
-      {item.selected && (item.sameEvent ? <SameEventBadge /> : <SelectedBadge />)}
+      {(item.selected || item.publicLabel) && (item.sameEvent ? <SameEventBadge /> : <SelectedBadge label={item.publicLabel} />)}
       <ScoreLabel score={item.score} />
     </div>
   );
@@ -472,9 +472,9 @@ function ItemView({ item }: { item: SiteItemDetail }) {
             {!item.publishedAt && <span>收录于</span>}
             <time dateTime={shownAt} className="mono">{fullDateTime(shownAt)}</time>
             <span suppressHydrationWarning>· {relativeTime(shownAt)}</span>
-            {item.selected && (
+            {(item.selected || item.publicLabel) && (
               <span className="ml-1 lg:hidden">
-                {item.sameEvent ? <SameEventBadge /> : <SelectedBadge />}
+                {item.sameEvent ? <SameEventBadge /> : <SelectedBadge label={item.publicLabel} />}
               </span>
             )}
             {shownScore(item.score) !== null && (

@@ -1,7 +1,7 @@
 // Editorial v2 deterministic policy. No database, model, clock or network access belongs here.
 import type { EditorialPolicyV2 } from "../contracts.ts";
 import { interpolateValue, reporterHeatValue, videoHeatValue } from "@aihot/backend/events/heat-v2";
-export type EditorialScope = "direct_ai_film" | "general_ai" | "non_ai_film" | "unrelated" | "uncertain";
+export type EditorialScope = "direct_ai_film" | "general_ai" | "adjacent_industry" | "non_ai_film" | "unrelated" | "uncertain";
 export type ObservationState = "complete" | "partial" | "unknown";
 export type PublicRoute = "model_release" | "direct_all" | "direct_selected" | "major_event" | "verified_breakout" | "general_ai_selected" | "market_reference" | "excluded" | "pending" | "private";
 export type Dimensions = { I: number; M: number; D: number; P: number; F: number };
@@ -9,7 +9,7 @@ export type InternalDimensions = { I: number; M: number; E: number; X: number; P
 
 export const DEFAULT_EDITORIAL_V2: EditorialPolicyV2 = {
   schemaVersion: 2,
-  policyVersion: "editorial-v2.1-20261026",
+  policyVersion: "editorial-v3.0-20261028",
   public: {
     weights: { interest: 25, impact: 25, substance: 15, practical: 10, freshness: 5, heat: 20 },
     all: { S: 45, B: 40, I: 35, D: 40, compensatedB: 50 },
@@ -131,6 +131,8 @@ export interface PublicRouteInput {
   aiCentral?: boolean;
   filmRelevant?: boolean;
   factsAvailable?: boolean;
+  evidence?: number;
+  referenceVerified?: boolean;
   modelRelease?: boolean;
   major?: boolean;
   breakout?: boolean;
@@ -144,19 +146,20 @@ export function routePublic(input: PublicRouteInput): ReturnType<typeof scorePub
   if (input.scope === "uncertain") return { ...scored, route: "pending", reasonCodes: ["scope_uncertain"] };
   if (input.scope === "unrelated") return { ...scored, route: "excluded", reasonCodes: ["scope_unrelated"] };
   const scopeMatch = input.scope === "direct_ai_film" ? input.aiCentral === true && input.filmRelevant === true
-    : input.scope === "non_ai_film" ? input.filmRelevant === true : input.aiCentral === true;
+    : ["adjacent_industry", "non_ai_film"].includes(input.scope) ? input.filmRelevant === true : input.aiCentral === true;
   if (!scopeMatch) return { ...scored, route: "excluded", reasonCodes: ["scope_evidence_mismatch"] };
   if (input.factsAvailable === false) return { ...scored, route: "excluded", reasonCodes: ["facts_unavailable"] };
   const major = input.major === true && input.dimensions.M >= policy.public.major.M && input.dimensions.I >= policy.public.major.I
     && input.dimensions.D >= policy.public.major.D && (input.scope === "direct_ai_film" || input.scope === "general_ai");
-  const breakout = input.breakout === true && input.dimensions.D >= 40;
-  if (input.scope === "non_ai_film") {
-    const selected = breakout && input.dimensions.M >= policy.public.nonAi.M && input.dimensions.I >= policy.public.nonAi.I
-      && input.dimensions.D >= policy.public.nonAi.D && scored.S >= policy.public.nonAi.S;
-    return { ...scored, route: selected ? "market_reference" : "excluded", reasonCodes: selected ? ["non_ai_exception"] : ["non_ai_not_qualified"] };
+  if (["adjacent_industry", "non_ai_film"].includes(input.scope) && input.referenceVerified !== true)
+    return { ...scored, route: "pending", reasonCodes: ["film_scope_evidence_pending"] };
+  // Verified attention is an independent route for relevant AI/film facts, never for gossip or missing observations.
+  if (input.breakout === true) return { ...scored, route: "verified_breakout", reasonCodes: ["verified_breakout"] };
+  if (["adjacent_industry", "non_ai_film"].includes(input.scope)) {
+    const reference = scored.S >= 50 && input.dimensions.I >= 50 && input.dimensions.D >= 50 && (input.evidence ?? 0) >= 60;
+    return { ...scored, route: reference ? "market_reference" : "excluded", reasonCodes: [reference ? "industry_reference_candidate" : "industry_reference_below_standard"] };
   }
-  if (major || breakout) return { ...scored, route: major ? "major_event" : "verified_breakout",
-    reasonCodes: major ? ["verified_major_event"] : ["verified_breakout"] };
+  if (major) return { ...scored, route: "major_event", reasonCodes: ["verified_major_event"] };
   if (input.scope === "general_ai") {
     const selected = scored.S >= policy.public.general.S && input.dimensions.M >= policy.public.general.M
       && input.dimensions.I >= policy.public.general.I && input.dimensions.D >= policy.public.general.D

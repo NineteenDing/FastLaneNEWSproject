@@ -1,4 +1,4 @@
-import { verifiedModelLaunch, editorialEvidenceScope,verifiedAttentionBreakout } from "./editorial-evidence.ts";
+import { verifiedModelLaunch, editorialEvidenceScope,verifiedAttentionBreakout,relevantEditorialEvidence } from "./editorial-evidence.ts";
 import { verifiedMemeEvidence } from "./shared-material.ts";
 import type { EditorialPolicyV2, EditorialScopeV2, EventPropagationRules, FilterPolicy, SharedTopicSignals, TopicBatchMaterial, TopicMaterialAnalysis } from "../contracts.ts";
 import { defaultEventPropagationRules, eventHeat, eventHeatV2, observeEvent, resolveEventTime, type PropagationRow } from "./event-propagation.ts";
@@ -13,7 +13,7 @@ const scopeOf = (shared: NonNullable<TopicMaterialAnalysis["shared"]>): Editoria
     : shared.scope === "unrelated" ? "unrelated" : "uncertain");
 const legacyScope = (scope: EditorialScopeV2): SharedTopicSignals["candidates"][number]["scope"] =>
   scope === "direct_ai_film" ? "direct" : scope === "unrelated" ? "unrelated" : scope === "uncertain" ? "uncertain" : "important_ai";
-const selectedRoutes = ["direct_selected", "major_event", "verified_breakout", "general_ai_selected", "market_reference"];
+const selectedRoutes = ["direct_selected", "major_event", "verified_breakout", "general_ai_selected"];
 
 /** Uses frozen evidence only: no current database reads, model calls, or mutation of history. */
 export function freezeSharedTopicSignals(materials: Material[], asOf: string, propagation: EventPropagationRules = defaultEventPropagationRules,
@@ -40,7 +40,7 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
         kind: material.kind, work: material.source.work?.id ?? material.id, views: metrics?.views ?? null, publishedAt: material.publishedAt!,
         observedAt: observed, hasMemeEvidence: analysis!.shared!.memeEvidence.length > 0, verifiedMeme: verifiedMemeEvidence(analysis!.shared) };
     });
-    const qualified = related.some(row => evidenceAvailable(row) && (["direct", "important_ai"].includes(row.analysis!.shared!.scope)||row.analysis!.shared!.aiCentral===true));
+    const qualified = related.some(row => evidenceAvailable(row) && relevantEditorialEvidence(row.analysis!.shared!));
     const baseHeat = eventHeatV2(rows, asOf, editorial);
     const trends=platformAttention(related.flatMap(row=>(row.material.trends??[]).flatMap(trend=> {
       const observation=trend.observations.filter(value=>Date.parse(value.observedAt)<=cutoff).sort((a,b)=>Date.parse(b.observedAt)-Date.parse(a.observedAt))[0];
@@ -82,17 +82,17 @@ export function freezeSharedTopicSignals(materials: Material[], asOf: string, pr
     const D = shared.v2?.D.value ?? shared.publicDimensions.substance.value ?? null;
     const P = shared.v2?.P.value ?? shared.publicDimensions.practical.value ?? null;
     const major = !!shared.majorEvent && shared.majorEvent.kind !== "none" && shared.majorEvent.evidenceFactIds.length > 0;
-    const complete = available && I !== null && M !== null && D !== null && P !== null;
+    const complete = available && (event.breakout.triggered || I !== null && M !== null && D !== null && P !== null);
     // Internal semantic qualification only; publication permission, publicSummary and page windows are skipped here.
-    const route = complete ? routePublic({ dimensions: { I, M, D, P, F }, observed: heat.heatObserved ?? null,
+    const route = complete ? routePublic({ dimensions: { I: I ?? 0, M: M ?? 0, D: D ?? 0, P: P ?? 0, F }, observed: heat.heatObserved ?? null,
       freshObserved: heat.heatFresh ?? null, state: heat.heatState ?? "unknown", scope, aiCentral: shared.aiCentral,
-      filmRelevant: editorialEvidenceScope(shared).filmRelevant, modelRelease: verifiedModelLaunch(shared), factsAvailable: available, major, breakout: event.breakout.triggered, policy: editorial }).route : "pending";
+      filmRelevant: editorialEvidenceScope(shared).filmRelevant, modelRelease: verifiedModelLaunch(shared), factsAvailable: available, referenceVerified: (shared.scopeFactIds?.length ?? 0) > 0, evidence: shared.v2?.E.value ?? 0, major, breakout: event.breakout.triggered, policy: editorial }).route : "pending";
     const path = !v2 ? (!available || !["direct", "important_ai"].includes(legacyScope(scope)) ? null
       : event.breakout.triggered ? "breakout" as const : scope === "general_ai" ? "important_ai" as const
       : row.analysis!.gates?.benefit === true ? "direct" as const : null)
-      : !selectedRoutes.includes(route) ? ["direct_all","model_release"].includes(route) ? "direct" as const : null
+      : route === "market_reference" ? "market_reference" as const : !selectedRoutes.includes(route) ? ["direct_all","model_release","market_reference"].includes(route) ? "direct" as const : null
       : route === "major_event" ? "major_event" as const : route === "verified_breakout" ? "breakout" as const
-      : route === "general_ai_selected" ? "general_ai" as const : route === "market_reference" ? "market_reference" as const : "direct" as const;
+      : route === "general_ai_selected" ? "general_ai" as const : "direct" as const;
     return { materialId: row.material.id, eventId: event.id, scope: legacyScope(scope), editorialScope: scope, evidenceAvailable: available,
       directBenefit: row.analysis!.gates?.benefit === true, path, route,
       reason: !available ? "完整正文或事实证据不足" : !complete ? "新版语义维度或事实尚不完整，等待重判"

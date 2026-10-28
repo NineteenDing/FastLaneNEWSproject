@@ -56,6 +56,7 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
   const revisionSelection = useRef<{ field: keyof WritingContent; text: string; selection: { start: number; end: number; text: string } | null } | null>(null);
   const saving = useRef<Promise<number | null> | null>(null);
   const [status, setStatus] = useState("已保存"), [blocked, setBlocked] = useState(false), [ready, setReady] = useState(false);
+  const [imagePreview, setImagePreview] = useState<WritingImage | null>(null);
   const [recoveries, setRecoveries] = useState<RecoveryCopy[]>([]), [preview, setPreview] = useState<WritingVersion | null>(null);
   const recovery = recoveries[0] ?? null, ownRecoveryKey = useRef<string | null>(null);
   const [imageStatus, setImageStatus] = useState(""), [uploading, setUploading] = useState(false), uploadPending = useRef(false);
@@ -279,7 +280,7 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
           const news = image.source.kind === "news" ? image.source : null;
           const article = news ? externalUrl(news.articleUrl ?? project.snapshot.materials.find(material => material.id === news.materialId)?.url ?? null) : null;
           const original = news ? externalUrl(news.originalUrl) : null;
-          return <li key={image.assetId}><img src={image.url} alt={image.name} loading="lazy" draggable={false} /><span>{image.name}</span>
+          return <li key={image.assetId}><button type="button" className="studio-image-preview-button" aria-label={`放大预览：${image.name}`} onClick={() => setImagePreview(image)}><img src={image.url} alt={image.name} loading="lazy" draggable={false} /></button><span>{image.name}</span>
           {news && <><p className="studio-caption">新闻配图{news.revision ? ` · 文章版本 ${news.revision}` : ""} · 授权未知</p><div className="studio-actions">
             {article && <a href={article} target="_blank" rel="noreferrer">来源文章</a>}{original && <a href={original} target="_blank" rel="noreferrer">图片原链接</a>}
           </div></>}<div className="studio-actions">
@@ -321,8 +322,10 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
         </details>
       </section>
 </div></Dialog>
+    {imagePreview && <Dialog title={imagePreview.name} wide onClose={() => setImagePreview(null)}><img className="studio-image-preview-full" src={imagePreview.url} alt={imagePreview.name} draggable={false} /></Dialog>}
     <Dialog title="修改历史" open={tool === "history"} onClose={() => setTool(null)} wide><div className="studio-writing-tools">      <section><p className="studio-caption">共 {versions.total} 版 · 第 {versions.page} 页。已保存定稿保留在历史中。</p><ul>{versions.rows.map(item => <li key={item.version}><button onClick={() => void selectVersion(item.version)}>版本 {item.version} · {item.source === "final" ? "已确认定稿" : item.source === "model" ? "AI 生成" : item.source === "restore" ? "历史恢复" : "草稿保存"}</button><span className="studio-caption">{date(item.createdAt)}</span></li>)}</ul>
         <nav className="studio-actions" aria-label="修改历史分页">{versions.page > 1 && <Link to={`?historyPage=${versions.page - 1}`} preventScrollReset>较新版本</Link>}{versions.hasMore && <Link to={`?historyPage=${versions.page + 1}`} preventScrollReset>更早版本</Link>}</nav></section>
+
     {preview && <section className="studio-writing-history" aria-label="历史版本对比"><header><h2>版本 {preview.version}：{preview.title}</h2><button onClick={() => setPreview(null)}>收起对比</button></header><p className="studio-caption">{date(preview.createdAt)} · 当前编辑内容保持不变</p>
       <div className="studio-writing-comparison">{preview.content.spoken}</div>
       {preview.skills && <WritingSkillEvidence skills={preview.skills} label="此版本写作规则" />}

@@ -4,6 +4,7 @@ import type { TopicBatchMaterial, TopicColumn } from "../contracts.ts";
 const text = z.string().trim().min(1).max(500);
 const quotes = z.array(z.string().trim().min(1).max(600)).min(1).max(8);
 const dimension = z.object({ value: z.number().min(0).max(100).nullable(), reason: text }).strict();
+const aiTerm = /\bAI\b|AIGC|人工智能|生成式|大模型|GPT|Genie|Gemini|Sora|Veo|Kling|Runway|Qwen|Claude|DeepSeek|Kimi|Llama|GLM|MiniMax|可灵|即梦|豆包|通义|智谱|混元|海螺|Seedance|Midjourney|Stable Diffusion|FLUX|Suno|Udio/i;
 const factIds = z.array(z.number().int().nonnegative()).max(20);
 const v2Dimension = z.object({ value: z.number().min(0).max(100).nullable(), reason: text, factIds: factIds.optional() }).strict();
 
@@ -21,8 +22,9 @@ function supportedTimeQuote(time: { at: string; precision: "instant" | "day"; qu
 /** Factual understanding is shared; observed heat, age and editable weights are computed later. */
 export const sharedMaterialSchema = z.object({
   scope: z.enum(["direct", "important_ai", "unrelated", "uncertain"]), scopeReason: text, scopeQuotes: z.array(z.string().trim().min(1).max(600)).max(8),
-  editorialScope: z.enum(["direct_ai_film", "general_ai", "non_ai_film", "unrelated", "uncertain"]).optional(),
+  editorialScope: z.enum(["direct_ai_film", "general_ai", "adjacent_industry", "non_ai_film", "unrelated", "uncertain"]).optional(),
   aiCentral: z.boolean().optional(), filmRelevant: z.boolean().optional(),
+  scopeFactIds: factIds.optional(), aiRole: z.string().trim().max(500).nullable().optional(),
   facts: z.array(z.object({ text, quotes }).strict()).max(32),
   publicDimensions: z.object({ practical: dimension, interest: dimension, substance: dimension }).strict(),
   impact: dimension.optional(),
@@ -53,6 +55,15 @@ export const sharedMaterialSchema = z.object({
     ctx.addIssue({ code: "custom", message: "general_ai 需要 aiCentral=true", path: ["editorialScope"] });
   if (data.editorialScope === "non_ai_film" && data.filmRelevant !== true)
     ctx.addIssue({ code: "custom", message: "non_ai_film 需要 filmRelevant=true", path: ["editorialScope"] });
+  if (data.scopeFactIds?.some(index => !validFact(index))) ctx.addIssue({ code: "custom", message: "scopeFactIds必须指向事实", path: ["scopeFactIds"] });
+  if (data.aiCentral === true && data.scopeFactIds !== undefined && (!data.scopeFactIds.length || !data.aiRole?.trim()))
+    ctx.addIssue({ code: "custom", message: "AI核心判断必须提供scopeFactIds和AI实际作用", path: ["scopeFactIds"] });
+  if (data.filmRelevant === true && data.scopeFactIds !== undefined && !data.scopeFactIds.length)
+    ctx.addIssue({ code: "custom", message: "影视相关须指向具体相关事实", path: ["scopeFactIds"] });
+  if (data.editorialScope === "adjacent_industry" && (data.filmRelevant !== true || data.aiCentral !== false))
+    ctx.addIssue({ code: "custom", message: "邻近产业须影视相关且AI非核心", path: ["editorialScope"] });
+  if (data.aiCentral === true && data.scopeFactIds !== undefined && !data.scopeFactIds.some(index => validFact(index) && data.facts[index]!.quotes.some(quote => aiTerm.test(quote))))
+    ctx.addIssue({ code: "custom", message: "AI核心范围所引用事实没有明确AI主体，不能凭设备/来源或观众推断", path: ["scopeFactIds"] });
   if (data.summaryFactIds?.some(index => !validFact(index)))
     ctx.addIssue({ code: "custom", message: "summaryFactIds 必须指向 shared.facts", path: ["summaryFactIds"] });
   for (const key of ["I", "M", "D", "P", "E", "X"] as const)
@@ -123,7 +134,7 @@ export const sharedMaterialInstructions = "本次为二期共享基础分析：�
   "不要把一次发布消息自动当长期有效政策；已知生效与失效日期须有引用，不知道日期用null，不编造永久有效。此字段不改变原发布日期，不表示重新发生。" +
   "评论中的parentExternalId指向本材料父评论，回复须连同父评论理解，不把同一讨论链当作多份事实验证；样本范围由采集记录展示，不从样本推断全网共识。" +
   "全部quotes逐字来自material.body；不从标题或评论补造新闻事实。material未提供发布时间、指标与来源身份，因为它们由程序按原记录计算，不能填猜测数字。" +
-  "v2补充：editorialScope为direct_ai_film(明确直接AI影视)/general_ai(AI是主体但非直接AI影视)/non_ai_film(影视音乐漫剧相关但AI非核心)/unrelated/uncertain；aiCentral与filmRelevant为布尔并须有正文依据。direct_ai_film须两者true，general_ai须aiCentral=true，non_ai_film须filmRelevant=true；来源是AI科技媒体不能替代文章相关性。" +
+  "v3补充：adjacent_industry指短剧/漫剧/IP/制作发行平台等产业变化；non_ai_film指普通电影项目、影展融资、器材、演员作品。花边、恋情、私生活与无影视作品事实的明星争议须unrelated，不能以明星身份推导影视相关。editorialScope为direct_ai_film(明确直接AI影视)/general_ai(AI是主体但非直接AI影视)/non_ai_film(影视音乐漫剧相关但AI非核心)/unrelated/uncertain；aiCentral与filmRelevant为布尔并须有正文依据。direct_ai_film须两者true，general_ai须aiCentral=true，non_ai_film须filmRelevant=true；来源是AI科技媒体不能替代文章相关性。" +
   "M按事件所在AI领域的真实影响评价，通用AI模型发布不以影视实操落地为必需；AI音乐、配音、图像、视频、剧本创作及其版权与观看体验直接属于AI影视，不要求教程。v2为{I,M,D,P,E,X}，每项{value:0至100或null,reason,factIds:指向shared.facts的整数下标数组}；I受众兴趣、M影响重要性、D实质信息、P可操作价值、E证据支撑、X表达与新增空间。无实操内容的P=0是明确不适用，不得为了过线倒推分数；核心维度缺失标null。" +
   "publicSummary只写80至180个中文字符（硬上限300）的新闻事实及明确归因的原文观点，不写评分、推荐、相关性、选题、模型判断或“值得关注/潜在参考”；summaryFactIds指向支持摘要的shared.facts下标。" +
   "majorEvent仅在已核实的重大模型发布、约束性政策、重大事故、重大平台或行业变化时输出{kind,affectedGroups,realizedChange,evidenceFactIds,limitations}；普通融资、名人表态、预告、估值变化和普通小版本更新不是重大，否则null。primaryIntent为practice/models/news/cases/other，按文章主要问题给出。同时保留旧shared.scope字段。" +

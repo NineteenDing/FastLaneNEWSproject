@@ -22,10 +22,10 @@ export function Badge({ tone = "neutral", dot = false, children, className = "",
 }
 
 /** The "精选" mark on a report. */
-export function SelectedBadge() {
+export function SelectedBadge({ label = "精选" }: { label?: string | null }) {
   return (
     <Badge tone="selected" dot>
-      精选
+      {label || "精选"}
     </Badge>
   );
 }

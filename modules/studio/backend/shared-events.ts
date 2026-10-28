@@ -13,7 +13,7 @@ import { eventHeat, eventHeatV2, observeEvent, resolveEventTime, type Propagatio
 import { currentFilterPolicy } from "./filter-settings.ts";
 import { verifiedMemeEvidence } from "./shared-material.ts";
 import { DEFAULT_EDITORIAL_V2, type HeatSnapshotV2 } from "./editorial-v2.ts";
-import {verifiedAttentionBreakout} from './editorial-evidence.ts';
+import {verifiedAttentionBreakout,relevantEditorialEvidence} from './editorial-evidence.ts';
 import {releaseReadingKey} from './release-reading-key.ts';
 
 /** Freeze the bounded recall once, before paying. Recovery uses exactly the same provider request. */
@@ -100,7 +100,7 @@ export async function sharedEventObservations(db: Db, eventIds: string[], asOf: 
   for (const event of events) {
     const members = rows.filter(row => row.eventId === event.id).map(row => ({ ...row,
       publishedAt: row.published.toISOString(), observedAt: row.observedAt ?? null, verifiedMeme: verifiedMemeEvidence(row.shared) }));
-    const qualified = members.some(member=>(["direct","important_ai"].includes(member.shared.scope)||member.shared.aiCentral===true)&&member.shared.facts.length>0);
+    const qualified = members.some(member=>relevantEditorialEvidence(member.shared));
     const baseHeat = eventHeatV2(members, asOf.toISOString(), editorial), trends = platformAttention(trendRows.get(event.id) ?? [], asOf.toISOString());
     const maxKnown = (a: number | null, b: number | null) => a === null ? b : b === null ? a : Math.max(a, b);
     const observed = maxKnown(baseHeat.observed, trends.observed), fresh = maxKnown(baseHeat.freshObserved, trends.freshObserved);

@@ -596,7 +596,7 @@ export type MaterialInsights = {
   commentFocus: Array<{ point: string; evidence: Array<{ commentId: string; quote: string }> }>;
   impacts: Array<{ effect: string; conditions: string; kind: "reported" | "inferred"; evidenceQuotes: string[] }>;
 };
-export type EditorialScopeV2 = "direct_ai_film" | "general_ai" | "non_ai_film" | "unrelated" | "uncertain";
+export type EditorialScopeV2 = "direct_ai_film" | "general_ai" | "adjacent_industry" | "non_ai_film" | "unrelated" | "uncertain";
 export interface SemanticDimensionV2 { value: number | null; reason: string; factIds?: number[] }
 export interface MajorEventV2 {
   kind: "major_model_release" | "binding_policy" | "major_incident" | "major_platform_change" | "major_industry_change" | "none";
@@ -618,7 +618,7 @@ export interface TopicMaterialAnalysis {
   insights?: MaterialInsights;
   shared?: {
     policy: string; scope: "direct" | "important_ai" | "unrelated" | "uncertain"; scopeReason: string; scopeQuotes: string[];
-    editorialScope?: EditorialScopeV2; aiCentral?: boolean; filmRelevant?: boolean;
+    editorialScope?: EditorialScopeV2; aiCentral?: boolean; filmRelevant?: boolean; scopeFactIds?: number[]; aiRole?: string | null;
     facts: Array<{ text: string; quotes: string[] }>;
     publicDimensions: Record<"practical" | "interest" | "substance", { value: number | null; reason: string }>;
     impact?: { value: number | null; reason: string };

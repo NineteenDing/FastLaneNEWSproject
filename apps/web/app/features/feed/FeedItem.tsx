@@ -45,12 +45,8 @@ export const FeedItem = memo(function FeedItem({ item, group, filters, read = fa
             · {beijingTime(at)}
           </time>
         )}
-        {item.selected && (
-          <span className="hidden lg:inline-flex">
-            {item.sameEvent ? <SameEventBadge /> : <SelectedBadge />}
-          </span>
-        )}
         <span className="ml-auto flex shrink-0 items-center gap-1 pl-2 lg:gap-1.5">
+          {(item.selected || item.publicLabel) && <SelectedBadge label={item.publicLabel} />}
           <span className="hidden lg:inline-flex">
             <ScoreLabel score={item.score} />
           </span>

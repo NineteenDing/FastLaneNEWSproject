@@ -2,8 +2,8 @@ import type { SharedMaterial } from "./shared-material.ts";
 
 /** Observed authoritative-platform heat only: never an imputed view count or missing-data placeholder. */
 export function verifiedAttentionBreakout(shared:SharedMaterial,platformHeat:number|null){
- return shared.aiCentral===true&&['direct_ai_film','general_ai'].includes(shared.editorialScope??'')&&shared.facts.length>0
-  &&platformHeat!==null&&platformHeat>=50&&(shared.v2?.I.value??0)>=65&&(shared.v2?.D.value??0)>=55&&(shared.v2?.E.value??0)>=70;
+ return relevantEditorialEvidence(shared)&&shared.facts.length>0
+  &&platformHeat!==null&&platformHeat>=50;
 }
 
 /** Uses already-grounded facts, never a title or source reputation as the event itself. */
@@ -25,10 +25,20 @@ export function verifiedModelLaunch(shared: SharedMaterial | null | undefined) {
 
 /** Correct a broad-AI label only when AI is central and a grounded fact explicitly concerns creative media. */
 export function editorialEvidenceScope(shared: SharedMaterial) {
+ const filmFacts = shared.facts.some(fact => /电影|影视|短剧|漫剧|竖屏|剧本|片单|影展|电影节|融资市场|摄影|相机|镜头|音频|音乐|配乐|配音|录音|剪辑|视效|图像|视频|\bfilm|cinema|screenplay|vertical|microdrama|series|webtoon|streaming|production|camera|lens|cinematograph|VFX|music|audio|video|image/i.test(fact.text+' '+fact.quotes.join(' ')));
+ if (shared.aiCentral!==true && shared.filmRelevant===true && !filmFacts)
+  return {scope:"unrelated" as const,aiCentral:false,filmRelevant:false};
  const direct = shared.editorialScope === "general_ai" && shared.aiCentral === true && shared.facts.some(fact =>
   /AI|人工智能|生成式|大模型|Claude|Anthropic|OpenAI/i.test(fact.text)
   && /图像|视频|影视|电影|漫剧|剧本|配音|音乐|歌曲|歌词|image|video|film|screenplay|music|songs?|lyrics?/i.test(fact.text)
   && /生成|创作|制作|作品|训练|版权|诉讼|著作权|合成|generate|creat|produc|train|copyright|lawsuit|synthetic/i.test(fact.text));
  return direct ? {scope:"direct_ai_film" as const,aiCentral:true,filmRelevant:true}
   : {scope:shared.editorialScope,aiCentral:shared.aiCentral,filmRelevant:shared.filmRelevant};
+}
+
+/** Consistent relevance gate for all observed media/video/trend breakout paths. */
+export function relevantEditorialEvidence(shared: SharedMaterial) {
+ const resolved=editorialEvidenceScope(shared);
+ return shared.facts.length>0 && (resolved.scope===undefined ? ['direct','important_ai'].includes(shared.scope)
+  : !['unrelated','uncertain'].includes(resolved.scope)&&(resolved.aiCentral===true||resolved.filmRelevant===true));
 }

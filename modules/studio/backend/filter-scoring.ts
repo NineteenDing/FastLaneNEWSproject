@@ -196,23 +196,23 @@ export function scoreMaterialV2(record: ScoringRecord, event: ObservedSharedEven
   const factsAvailable = record.complete && !!shared?.facts.length;
   // A v1 "unrelated" verdict stays a terminal exclusion; it is not silently re-labelled as a v2 score.
   const legacyUnrelated = !shared?.editorialScope && shared?.scope === "unrelated";
-  const coreMissing = !routeScope || I === null || M === null || D === null || P === null || !factsAvailable;
+  const coreMissing = !routeScope || !factsAvailable || (!breakout && (I === null || M === null || D === null || P === null));
   const routed = coreMissing ? null : routePublic({
-    dimensions: { I, M, D, P, F: f.decision }, observed, freshObserved: snap.freshObserved, state,
+    dimensions: { I: I ?? 0, M: M ?? 0, D: D ?? 0, P: P ?? 0, F: f.decision }, observed, freshObserved: snap.freshObserved, state,
     scope: routeScope, aiCentral: evidenceScope?.aiCentral, filmRelevant: evidenceScope?.filmRelevant, modelRelease: verifiedModelLaunch(shared),
-    factsAvailable, major, breakout, policy: editorial,
+    factsAvailable, referenceVerified: (shared?.scopeFactIds?.length ?? 0) > 0, evidence: E ?? 0, major, breakout, policy: editorial,
   });
   const route = legacyUnrelated ? "excluded" as const : routed?.route ?? "pending" as const;
-  const selectedRoute = ["direct_selected", "major_event", "verified_breakout", "general_ai_selected", "market_reference"].includes(route);
+  const selectedRoute = ["direct_selected", "major_event", "verified_breakout", "general_ai_selected"].includes(route);
   const publicRoute = record.private ? "private" as const : route;
   const destination = record.private ? "private" as const : legacyUnrelated ? "excluded" as const : selectedRoute ? "selected_candidate" as const
-    : ["direct_all", "model_release"].includes(route) ? "all_candidate" as const : route === "pending" ? "pending" as const : "excluded" as const;
+    : ["direct_all", "model_release", "market_reference"].includes(route) ? "all_candidate" as const : route === "pending" ? "pending" as const : "excluded" as const;
   const pub = routed ?? { base: 0, B: 0, Hdecision: snap.decisionValue, S: 0, heatCompensated: snap.heatCompensated, interval: [0, 0] as [number, number], route, reasonCodes: ["migration_pending"] };
   const internalValues = { heat: observed ?? null, freshness: f.decision, impact: M, practical: P, evidence: E, distinctiveness: X };
   const internalScored = scoreInternal({ dimensions: { I: I ?? 0, M: M ?? 0, E: E ?? 0, X: X ?? 0, P: P ?? 0, F: f.decision },
     observed, freshObserved: snap.freshObserved, state }, editorial);
-  const internalEligible = !coreMissing && E !== null && I !== null && (major || breakout
-    ? E >= 50 : I >= 45 && E >= 50 && internalScored.S >= 50 && (!internalScored.heatCompensated || internalScored.B >= 60));
+  const internalEligible = !coreMissing && E !== null && (major || breakout
+    ? E >= 50 : I !== null && I >= 45 && E >= 50 && internalScored.S >= 50 && (!internalScored.heatCompensated || internalScored.B >= 60));
   const reasons = legacyUnrelated ? ["legacy_scope_unrelated"] : coreMissing ? ["migration_pending"] : (routed?.reasonCodes ?? []);
   if (summaryState === "pending") reasons.push("public_summary_pending");
   const values = { practical: P, interest: I, heat: observed, substance: D, freshness: f.decision };

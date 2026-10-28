@@ -4,6 +4,8 @@ import type { PublicationJudgement } from "@aihot/backend/modules";
 import { publishArticleTx } from "@aihot/backend/publication/publish";
 import { emit } from "@aihot/backend/modules";
 import { currentFilterPolicy } from "./filter-settings.ts";
+import { referenceCapacity } from "./reference-quota.ts";
+import { editorialEvidenceScope } from "./editorial-evidence.ts";
 import { scoringRecords, scoreMaterialV2 } from "./filter-scoring.ts";
 import { currentColumnContext } from "./column-matching.ts";
 import { sharedEventObservations } from "./shared-events.ts";
@@ -62,6 +64,7 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     ORDER BY (h.collected_at >= ${cutoff}) DESC, permission.updated_at ASC NULLS FIRST, h.article_id LIMIT 25`;
   let published = 0;
   for (const { article_id: id } of rows) await sql.begin(async db => {
+    await db`SELECT pg_advisory_xact_lock(hashtextextended('studio.public.admissions', 0))`;
     await db`SELECT id FROM articles WHERE id = ${id} FOR UPDATE`;
     const [record] = await scoringRecords(db, db`h.article_id = ${id}`);
     if (!record?.sourceKey) return;
@@ -83,7 +86,7 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     // version still require approval; explicit withdrawals/source isolation remain enforced by publish/read guards.
     const retained = previous?.source_key===record.sourceKey && previous.decision.allowed===true && !record.private
       && source?.participation_mode==='editorial';
-    const allowed = retained || (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
+    let allowed = retained || (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
     const images = [...(source?.media ?? []), ...(source?.x_post?.media ?? []), { url: source?.x_post?.avatarUrl }]
       .flatMap(media => [media.url, media.poster]).filter(value => typeof value === "string" && value.trim());
     const fulltextImages: string[] = [];
@@ -98,15 +101,30 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
         JOIN ancestors child ON parent.id = child.parent_id WHERE NOT parent.id = ANY(child.path) AND cardinality(child.path) < 30
     ) SELECT id, parent_id FROM ancestors WHERE parent_id IS NULL` : [];
     const rootId = ancestors[0]?.id;
+    const currentScope = record.analysis?.shared ? editorialEvidenceScope(record.analysis.shared).scope : undefined;
+    const route = score.route === 'verified_breakout' ? score.route : retained && previous!.decision.route ? previous!.decision.route : score.route ?? 'pending';
+    const admittedAt = retained ? previous!.decision.admittedAt ?? record.collectedAt.toISOString() : now.toISOString();
+    let quotaPending = false;
+    if (allowed && route === 'market_reference' && !retained) {
+      const groups = await db<{event_key:string;core:boolean}[]>`SELECT coalesce(permission.decision->'event'->>'rootId',permission.article_id) AS event_key,
+        bool_or(coalesce(permission.decision->>'route','legacy_core') <> 'market_reference') AS core
+        FROM studio_public_news permission JOIN publications p ON p.article_id=permission.article_id
+        JOIN studio_history_index h ON h.article_id=permission.article_id JOIN sources s ON s.id=p.source_id
+        LEFT JOIN editorial_overrides o ON o.article_id=p.article_id
+        WHERE permission.decision->>'allowed'='true' AND permission.source_key=h.knowledge->>'sourceKey'
+          AND permission.article_id<>${id} AND p.visibility<>'withdrawn' AND s.participation_mode='editorial' AND o.visibility IS DISTINCT FROM 'withdrawn'
+          AND (coalesce((permission.decision->>'admittedAt')::timestamptz,p.discovered_at) AT TIME ZONE 'Asia/Hong_Kong')::date = (${admittedAt}::timestamptz AT TIME ZONE 'Asia/Hong_Kong')::date
+        GROUP BY coalesce(permission.decision->'event'->>'rootId',permission.article_id)`;
+      const existing = groups.some(group=>group.event_key===(rootId??id));
+      quotaPending = !existing && groups.filter(group=>!group.core).length >= referenceCapacity(groups.filter(group=>group.core).length);
+      if (quotaPending) allowed=false;
+    }
     const publicSummary = publicSummaryState(record.analysis?.shared);
-    const reasonLabels: Record<string, string> = { model_release: "正文确认的模型发布", direct_all: "符合AI影视公开范围", direct_selected: "符合AI影视公开与精选资格",
-      major_event: "已核实重大事件", verified_breakout: "已确认相关出圈", general_ai_selected: "通用AI达到精选资格",
-      market_reference: "非AI影视严格例外", excluded: "未通过公开资格", pending: "待核验", private: "内部材料" };
     const title = record.analysis?.shared?.titleZh ?? (retained?previous!.decision.title:null) ?? await savedNewsTitle(db, record.title) ?? record.title;
     const selected=allowed && (score.eligibleSelected===true || retained && (previous!.decision.selected || !!previous!.selected_ready_at));
+    const publicLabel = currentScope==='non_ai_film'||currentScope==='adjacent_industry'||route==='market_reference'?'行业参考':currentScope==='general_ai'?'出圈':selected?'精选':null;
     const decision: PublicNewsDecision = { allowed, title, summary: publicSummary.text??(retained?previous!.decision.summary:null),
-      reason: retained&&previous!.decision.selected?previous!.decision.reason:[reasonLabels[score.route ?? "pending"] ?? "待核验", ...(score.summaryState === "ok" ? [] : ["摘要待完成"]),
-        ...(publicSummary.fallback ? ["摘要使用原文事实回退"] : [])].join("；"),
+      reason: allowed ? publicLabel : quotaPending ? '行业参考等待每日额度' : '未通过公开资格', route, ...(allowed ? {admittedAt} : {}),
       category: policy.columnMapping[record.analysis?.columnId ?? ""] ?? null,
       score: retained?previous!.decision.score:score.public.total, selected, images: normalize(images), fulltextImages: normalize(fulltextImages),
       event: allowed && record.eventId && rootId ? { id: record.eventId, rootId, title,

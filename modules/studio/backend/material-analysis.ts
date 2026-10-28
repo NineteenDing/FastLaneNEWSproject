@@ -144,7 +144,7 @@ const rootSharedExtras = {
   editorialScope: z.any().optional(), aiCentral: z.any().optional(), filmRelevant: z.any().optional(),
   v2: z.any().optional(), majorEvent: z.any().optional(), publicSummary: z.any().optional(),
   titleZh: z.any().optional(), memeMetrics: z.any().optional(),
-  summaryFactIds: z.any().optional(), primaryIntent: z.any().optional(),
+  summaryFactIds: z.any().optional(), primaryIntent: z.any().optional(), scopeFactIds: z.any().optional(), aiRole: z.any().optional(),
 };
 const rootExtraKeys = Object.keys(rootSharedExtras) as Array<keyof typeof rootSharedExtras>;
 
@@ -183,6 +183,9 @@ async function evaluate(context: MaterialAnalysisSnapshot, user: string, modelId
         ctx.addIssue({code:"custom",message:"新入站材料必须提供完整共享分析对象",path:["shared"]});
       if(context.requireChineseTitle && value.shared && (!value.shared.v2 || !value.shared.editorialScope))
         ctx.addIssue({code:'custom',message:'新分析必须提供shared.v2与editorialScope，不能将无判断结果当成功',path:['shared']});
+      if (context.requireChineseTitle && value.shared && (value.shared.aiCentral || value.shared.filmRelevant)
+        && (!value.shared.scopeFactIds?.length || value.shared.aiCentral && !value.shared.aiRole?.trim()))
+        ctx.addIssue({code:'custom',message:'新分析的AI或影视相关结论必须提供scopeFactIds，AI核心同时提供aiRole',path:['shared','scopeFactIds']});
       if (!columns.some(column => column.enabled && column.id === value.columnId))
         ctx.addIssue({ code: "custom", message: "必须使用快照中启用的栏目", path: ["columnId"] });
       if (value.evidenceQuotes.some(quote => !evidence.body.includes(quote)) || value.gates.evidence && !value.evidenceQuotes.length)

@@ -157,6 +157,7 @@ export function toItemSummary(row: ItemRow): ItemSummary {
     originalTitle: row.original_title,
     summary: row.summary,
     reason: row.selected ? row.reason : null,
+    publicLabel: ["精选", "出圈", "行业参考"].includes(row.reason ?? "") ? row.reason as "精选" | "出圈" | "行业参考" : null,
     source: { name: publicSourceName(row.source_name) },
     links: { original: row.url },
     publishedAt: row.published_at?.toISOString() ?? null,
@@ -178,7 +179,7 @@ export function toFeedItemSummary(row: ItemRow): FeedItemSummary {
   return {
     id: item.id, title: item.title, originalTitle:item.originalTitle, summary: item.summary ?? (x?.text || null), reason: item.reason,
     source: item.source, publishedAt: item.publishedAt, timelineAt: item.timelineAt,
-    category: item.category, tags: item.tags, score: item.score, selected: item.selected, channel: item.channel,
+    category: item.category, tags: item.tags, score: item.score, selected: item.selected, channel: item.channel, publicLabel: item.publicLabel,
     x: x ? {
       authorName: x.authorName, handle: x.handle, avatarUrl: x.avatarUrl,
       ...(x.avatarSrcSet ? { avatarSrcSet: x.avatarSrcSet } : {}), media: x.media,

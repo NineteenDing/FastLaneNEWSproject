@@ -8,6 +8,7 @@ import {sharedMaterialSchema} from '../backend/shared-material.ts';
 test('模型契约兼容额外字段、数字布尔、根层v2与已知别名，不为额外字段整份重试',()=>{
  const raw=structuredClone(MATERIAL_OUTPUT_TEMPLATE);
  const value:any={...raw,gates:{audience:1,evidence:'true',benefit:'通过'},shared:{...raw.shared,eventCandidates:[],eventTime:null,publicSummaryFactIds:[0]}};
+ value.shared.scopeFactIds=[0];value.shared.aiRole='AI生成视频';value.shared.facts=[{text:'AI生成视频',quotes:['AI generates video']}];
  value.shared.reportingKind='original_report';value.shared.aiCentral=1;value.shared.filmRelevant=1;
  delete value.shared.summaryFactIds;
  const result=assessment.extend({shared:sharedMaterialSchema,entities:historyEntitySchema,insights:materialInsightsSchema}).safeParse(normalizeMaterialOutput(value));
