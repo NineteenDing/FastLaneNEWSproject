@@ -2,7 +2,7 @@ import { savedNewsTitle } from "./news-titles.ts";
 import { sql, type Db } from "@aihot/backend/db";
 import type { PublicationJudgement } from "@aihot/backend/modules";
 import { publishArticleTx } from "@aihot/backend/publication/publish";
-import { emit } from "@aihot/backend/modules";
+import { emit, serverModules } from "@aihot/backend/modules";
 import { currentFilterPolicy } from "./filter-settings.ts";
 import { sha256, stableJson } from "@aihot/backend/lib/ids";
 import { referenceCapacity, retainedReferenceCandidate } from "./reference-quota.ts";
@@ -57,6 +57,8 @@ export async function publicNewsJudgement(db: Db, articleId: string): Promise<Pu
 
 /** Bounded local projection only. It never asks a model to reconsider already-understood facts. */
 export async function reconcilePublicNews(now = new Date(), articleIds?:string[]) {
+  if (!serverModules().some(module => module.publication?.judgement === publicNewsJudgement))
+    throw new Error("缺少本站公开发布模块，请先installModules(SERVER_MODULES)，禁止回退旧发布流水线");
   const cutoff = new Date(now.getTime() - 120 * 3600000);
   const rows = await sql<{ article_id: string }[]>`SELECT h.article_id FROM studio_history_index h
     LEFT JOIN studio_public_news permission ON permission.article_id = h.article_id
