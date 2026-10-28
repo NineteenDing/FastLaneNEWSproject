@@ -57,7 +57,7 @@ export async function publicNewsJudgement(db: Db, articleId: string): Promise<Pu
 
 /** Bounded local projection only. It never asks a model to reconsider already-understood facts. */
 export async function reconcilePublicNews(now = new Date(), articleIds?:string[]) {
-  if (!serverModules().some(module => module.publication?.judgement === publicNewsJudgement))
+  if (serverModules().find(module => module.publication?.judgement)?.publication?.judgement !== publicNewsJudgement)
     throw new Error("缺少本站公开发布模块，请先installModules(SERVER_MODULES)，禁止回退旧发布流水线");
   const cutoff = new Date(now.getTime() - 120 * 3600000);
   const rows = await sql<{ article_id: string }[]>`SELECT h.article_id FROM studio_history_index h
