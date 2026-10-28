@@ -31,3 +31,8 @@ test('空的可选时间对象按未知处理；旧契约缺席shared不能被�
  const normalized:any=normalizeMaterialOutput(raw);assert.equal(normalized.shared.event.time,null);
  delete raw.shared;assert.equal('shared' in (normalizeMaterialOutput(raw) as object),false);
 });
+test('新事件的冗余候选ID清空，已有事件关联不被凭空修正',()=>{
+ const raw:any=structuredClone(MATERIAL_OUTPUT_TEMPLATE);raw.shared.event={...raw.shared.event,relation:'new',candidateId:'3263eb7a-cb85-43e0-af4d-fb6b792a2112'};
+ const a:any=normalizeMaterialOutput(raw);assert.equal(a.shared.event.candidateId,null);assert.equal(a.shared.event.identity,raw.shared.event.identity);
+ raw.shared.event.relation='same';const b:any=normalizeMaterialOutput(raw);assert.equal(b.shared.event.candidateId,raw.shared.event.candidateId);
+});

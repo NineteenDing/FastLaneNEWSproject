@@ -68,6 +68,8 @@ export function normalizeMaterialOutput(value:unknown):unknown {
  if(s.scopeQuotes!==undefined)s.scopeQuotes=list(s.scopeQuotes);
  if(Array.isArray(s.summaryFactIds))s.summaryFactIds=s.summaryFactIds.map(number);
  if(s.event){s.event=pick(s.event,['relation','candidateId','label','identity','quotes','time']);s.event.quotes=list(s.event.quotes);
+  // A new/composite event does not claim an existing event ID; clear this harmless redundant field.
+  if(['new','composite'].includes(s.event.relation))s.event.candidateId=null;
   const time=object(s.event.time);if(s.event.time&&(!time.at||!time.quote||!['instant','day'].includes(time.precision)))s.event.time=null;}
  if(s.majorEvent){s.majorEvent=pick(s.majorEvent,['kind','affectedGroups','realizedChange','evidenceFactIds','limitations']);s.majorEvent.affectedGroups=list(s.majorEvent.affectedGroups);}
  return root;
