@@ -36,7 +36,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
   // Past the last page of what there is: the last page, with the same search and filters.
   if (data.total > 0 && data.page > data.pageCount) throw redirect(pageHref(url.searchParams, data.pageCount));
-  return cachedPage(60, { data });
+  return cachedPage(5, { data });
 }
 
 export function meta({ loaderData }: Route.MetaArgs) {

@@ -95,7 +95,7 @@ async function capture(day: string): Promise<Input> {
       else if (ageHours <= params.windows.policyHours && reuseValid && reuse!.kind === "policy") stage = 4;
       if (stage === null) continue;
       const entry: Entry = { itemId: source.article_id, eventKey,
-        title: (stage >= 2 ? `[回看 ${beijingDate(new Date(newsMs))}] ` : "") + record.title, summary: summary.text, stage,
+        title: (stage >= 2 ? `[回看 ${beijingDate(new Date(newsMs))}] ` : "") + (shared.titleZh?.trim() || record.title), summary: summary.text, stage,
         category: policy.columnMapping[record.analysis?.columnId ?? ""] ?? null, score: score.public.total,
         practical: (shared.v2?.P.value ?? shared.publicDimensions.practical.value ?? 0),
         sourceName: source.name, sourceId: source.source_id, sourceUrl: source.url, firstParty: source.first_party, publishedAt: record.publishedAt.toISOString(),

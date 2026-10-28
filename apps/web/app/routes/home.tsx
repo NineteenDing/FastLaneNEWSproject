@@ -23,7 +23,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (filters.category || filters.channel !== "all" || filters.tag) throw redirect(`/all${url.search}`);
   const upstream = new Headers();
   const data = await loadOr404<TimelineResponse>(listPath("/api/site/timeline", filterParams(filters)), { responseHeaders: upstream, signal: request.signal });
-  return cachedPage(60, { data, filters }, upstream);
+  return cachedPage(5, { data, filters }, upstream);
 }
 
 export function meta({ loaderData }: Route.MetaArgs) {

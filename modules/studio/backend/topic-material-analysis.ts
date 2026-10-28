@@ -34,7 +34,15 @@ export function createTopicAnalysisQueue(host = createHostResourceMonitor(), dis
     worker: { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2, groupConcurrency: 1 },
     admission: createModelAdmission({ host, disk, database }),
     async run(jobs) { for (const job of jobs) { if ("live" in job) await analyzeLiveMaterial(job.live);
-      else if ("classification" in job) await analyzeCurrentMaterialClassification(job.classification); else await analyze(job); } },
+      else if ("classification" in job) await analyzeCurrentMaterialClassification(job.classification); else await analyze(job);
+      // The understanding is committed first. Publication failure retries this job's saved result,
+      // rather than buying another analysis or waiting for the rotating minute-based sweep.
+      const materialId='live' in job?job.live.materialId:'classification' in job?job.classification.materialId:job.materialId;
+      if(materialId.startsWith('news:')){
+        const {reconcilePublicNews}=await import('./public-news.ts');
+        await reconcilePublicNews(new Date(),[materialId.slice(5)]);
+      }
+    } },
   });
 }
 export const topicAnalysisQueue = createTopicAnalysisQueue();

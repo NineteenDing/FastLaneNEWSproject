@@ -14,6 +14,7 @@ import { currentFilterPolicy } from "./filter-settings.ts";
 import { verifiedMemeEvidence } from "./shared-material.ts";
 import { DEFAULT_EDITORIAL_V2, type HeatSnapshotV2 } from "./editorial-v2.ts";
 import {verifiedAttentionBreakout} from './editorial-evidence.ts';
+import {releaseReadingKey} from './release-reading-key.ts';
 
 /** Freeze the bounded recall once, before paying. Recovery uses exactly the same provider request. */
 export async function sharedAnalysisUser(key: string, user: string, material: TopicBatchMaterial) {
@@ -36,9 +37,10 @@ export async function sharedAnalysisUser(key: string, user: string, material: To
 export async function persistSharedEvent(db: Db, material: TopicBatchMaterial, shared: SharedMaterial | undefined, analysisKey: string, hasEvidence: boolean) {
   if (!hasEvidence || !["ok", "collected", "transcribed"].includes(material.bodyState) || !material.body.trim()
     || !shared?.event || shared.event.relation === "composite") return null;
-  const identityKey = sha256(shared.event.identity.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim()
+  const releaseKey=releaseReadingKey(shared);
+  const identityKey = releaseKey ? sha256('release-reading-v1:'+releaseKey) : sha256(shared.event.identity.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim()
     + (shared.event.relation === "development" ? ":development:" + shared.event.candidateId : ""));
-  const same = shared.event.relation === "same" ? shared.event.candidateId : null;
+  const same = !releaseKey && shared.event.relation === "same" ? shared.event.candidateId : null;
   const parent = shared.event.relation === "development" ? shared.event.candidateId : null;
   const [known] = same ? await db<{ id: string }[]>`SELECT id FROM studio_shared_events WHERE id = ${same}` : [];
   if (same && !known) throw new Error("原事件已不可用，未将新报道错误归并");

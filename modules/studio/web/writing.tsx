@@ -5,7 +5,6 @@ import type { AdminMe } from "@aihot/contracts/admin";
 import { adminGet } from "../../../apps/web/app/lib/admin.server";
 import { useAdminAction } from "../../../apps/web/app/features/admin/action";
 import type { TopicBatchPage, WritingProject, WritingProjectPage, WritingGeneration, WritingContent, WritingVersion, WritingImage, TopicColumns, TopicPresentation } from "../contracts";
-import { WritingEditor } from "./writing-editor";
 import { LanguageSampleEntries } from "./language-samples";
 import { HistoryChanges } from "./topic-history";
 import { externalUrl } from "./external-url";
@@ -51,10 +50,11 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
   const { me } = useRouteLoaderData("studio-layout") as { me: AdminMe };
   const action = useAdminAction("studio-layout"), revalidator = useRevalidator(), navigate = useNavigate();
   const [value, setValue] = useState<LocalValue>(() => localValue(project)), [baseVersion, setBaseVersion] = useState(project.version);
-  const [field, setField] = useState<keyof WritingContent>("spoken"), [markdown, setMarkdown] = useState(false);
+  const field = 'spoken' as const, markdown=false;
+  const [support,setSupport]=useState<'references'|'production'|'images'>('references');
   const [tool, setTool] = useState<"revision" | "generation" | "evidence" | "history" | "export" | null>(null);
   const revisionSelection = useRef<{ field: keyof WritingContent; text: string; selection: { start: number; end: number; text: string } | null } | null>(null);
-  const [editing, setEditing] = useState(false), saving = useRef<Promise<number | null> | null>(null);
+  const saving = useRef<Promise<number | null> | null>(null);
   const [status, setStatus] = useState("已保存"), [blocked, setBlocked] = useState(false), [ready, setReady] = useState(false);
   const [recoveries, setRecoveries] = useState<RecoveryCopy[]>([]), [preview, setPreview] = useState<WritingVersion | null>(null);
   const recovery = recoveries[0] ?? null, ownRecoveryKey = useRef<string | null>(null);
@@ -126,7 +126,6 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
     if (!ready || blocked || recovery) return;
     const timer = window.setInterval(() => { void save("auto"); }, 30_000); return () => window.clearInterval(timer);
   }, [ready, blocked, recovery]);
-  function leaveEditor() { if (!uploadPending.current) { setEditing(false); setMarkdown(false); void save("auto"); } }
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => { if (document.visibilityState === "visible") revalidator.revalidate(); }, 5000);
@@ -178,11 +177,6 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
       setImageStatus("图片已保存到本稿素材。"); revalidator.revalidate(); return result;
     } catch { if (mounted.current) setImageStatus("图片上传未确认，请检查网络后重试；原稿不变。"); return null; }
     finally { uploadPending.current = false; if (mounted.current) setUploading(false); }
-  }
-  function insertImage(image: WritingImage) {
-    const alt = image.name.replace(/[\[\]\\]/g, "\\$&");
-    setValue(current => ({ ...current, content: { ...current.content, notes: `${current.content.notes}\n\n![${alt}](${image.url})`.trim() } }));
-    setField("notes"); setImageStatus("图片已插入素材与备注，不进入纯口播。");
   }
   function exportMarkdown() {
     const blob = new Blob([`# ${value.title}\n\n${value.content[field]}\n`], { type: "text/markdown;charset=utf-8" }), url = URL.createObjectURL(blob), link = document.createElement("a");
@@ -256,32 +250,43 @@ function DraftEditor({ project, generation, versions, images, siblings }: { proj
       <label className="studio-writing-title">稿件标题<input value={value.title} maxLength={240} onChange={event => setValue(current => ({ ...current, title: event.target.value }))} /></label>
       {!!value.titleOptions?.length && <div className="studio-writing-titles" role="group" aria-label="备用标题"><p className="studio-caption">备用标题 · 点击可替换正式标题</p>{value.titleOptions.map(title => <span key={title}>
         <button type="button" aria-pressed={title === value.title} onClick={() => setValue(current => ({ ...current, title }))}>{title}</button><button type="button" aria-label={`删除备用标题：${title}`} onClick={() => setValue(current => ({ ...current, titleOptions: current.titleOptions?.filter(item => item !== title) }))}>删除</button></span>)}</div>}
-      <div className="studio-writing-view"><div role="tablist" aria-label="稿件内容">{Object.entries(fields).map(([key, name]) => <button key={key} role="tab" aria-selected={field === key} onClick={() => setField(key as keyof WritingContent)}>{name}</button>)}</div>
-        <div className="studio-actions" data-writing-editor-controls=""><button type="button" onClick={() => { if (editing) leaveEditor(); else setEditing(true); }}>{editing ? "完成编辑" : "编辑正文"}</button><label><input type="checkbox" checked={markdown} onChange={event => { setMarkdown(event.target.checked); setEditing(true); }} />Markdown</label></div></div>
-      <div ref={editor} className="studio-writing-body" onBlurCapture={() => captureRevisionSelection()}>{markdown ? <textarea aria-label={`${fields[field]} Markdown`} className="studio-writing-markdown" value={value.content[field]} maxLength={200000}
-        onBlur={event => { if ((event.relatedTarget as Element | null)?.closest("[data-writing-editor-controls]")) void save("auto"); else leaveEditor(); }} onChange={event => setValue(current => ({ ...current, content: { ...current.content, [field]: event.target.value } }))} />
-        : <WritingEditor key={`${project.id}:${field}`} label={`${fields[field]}正文`} value={value.content[field]}
-          readOnly={!editing} onActivate={() => setEditing(true)} onLeave={leaveEditor} images={images} onManagedImage={image => { if (field === "spoken") { insertImage(image); return false; } return true; }}
-          onChange={text => setValue(current => ({ ...current, content: { ...current.content, [field]: text } }))} onImageWarning={setImageStatus}
-          onPasteImage={async file => { const image = await upload(file); if (!image) return null; if (field === "spoken") { insertImage(image); return null; } return image.url; }} />}</div>
-      <p className="studio-caption studio-writing-edit-hint">点击正文即可编辑，离开后自动保存。</p>
+      <h2 className="studio-writing-spoken-label">纯口播稿</h2>
+      <div ref={editor} className="studio-writing-body" onBlurCapture={captureRevisionSelection}>
+        <textarea aria-label="纯口播正文" className="studio-writing-plain" value={value.content.spoken} maxLength={200000}
+          onSelect={captureRevisionSelection} onBlur={()=>void save("auto")}
+          onDrop={event=>{event.preventDefault();event.stopPropagation();setImageStatus("图片请保存在右侧图片素材中，口播正文保持文字。");}}
+          onPaste={event=>{if(event.clipboardData.files.length){event.preventDefault();setImageStatus("请在右侧图片素材中上传图片，口播正文保持文字。");}}}
+          onChange={event=>setValue(current=>({...current,content:{...current.content,spoken:event.target.value}}))}/>
+      </div>
+      <p className="studio-caption studio-writing-edit-hint">直接编辑口播文字，修改后自动保存。图片在右侧素材栏查看。</p>
+    </section><aside className="studio-writing-support" aria-label="本稿资料">
+      <div className="studio-writing-support-tabs" role="tablist" aria-label="本稿资料切换">
+        {([['references','本稿引用'],['production','制作方案'],['images','图片素材']] as const).map(([id,label])=><button key={id} role="tab" id={`support-tab-${id}`} aria-selected={support===id} aria-controls={`support-panel-${id}`} onClick={()=>setSupport(id)}>{label}</button>)}
+      </div>
+      <div role="tabpanel" id="support-panel-references" aria-labelledby="support-tab-references" hidden={support!=='references'} className="studio-writing-support-panel"><WritingReferences key={project.id} project={project}/></div>
+      <div role="tabpanel" id="support-panel-production" aria-labelledby="support-tab-production" hidden={support!=='production'} className="studio-writing-support-panel studio-writing-production">
+        <label htmlFor="production-plan">制作方案与备注</label><p className="studio-caption">镜头、操作步骤和素材备注集中在这里，随本稿自动保存。</p>
+        <textarea id="production-plan" aria-label="制作方案与备注" value={[value.content.production,value.content.notes&&`备注\n${value.content.notes}`].filter(Boolean).join('\n\n')} maxLength={200000}
+          onBlur={()=>void save('auto')} onDrop={event=>event.preventDefault()}
+          onChange={event=>setValue(current=>({...current,content:{...current.content,production:event.target.value,notes:''}}))}/>
+      </div>
+      <div role="tabpanel" id="support-panel-images" aria-labelledby="support-tab-images" hidden={support!=='images'} className="studio-writing-support-panel studio-writing-image-panel">
       <section className="studio-writing-assets" aria-label="图片素材"><h2>图片素材</h2><label>上传支撑图片<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" disabled={uploading} onChange={async event => {
-        const input = event.currentTarget, file = input.files?.[0]; if (file) { const image = await upload(file); if (image) insertImage(image); } input.value = "";
-      }} /></label><p className="studio-caption" role="status">{imageStatus || "可直接粘贴图片。5MiB以内、最多2000万像素，仅支持静态图片；保存后可移除素材列表中的条目，历史引用仍会保留。"}</p>
-        <p className="studio-caption">可把图片拖到制作方案或素材备注；纯口播保持文字。移出列表不会删除历史版本中的图片。</p>
+        const input = event.currentTarget, file = input.files?.[0]; if (file) await upload(file); input.value = "";
+      }} /></label><p className="studio-caption" role="status">{imageStatus || "图片仅保存在本稿素材中，不插入口播正文。5MiB以内、最多2000万像素，仅支持静态图片；保存后可移除素材列表中的条目，历史引用仍会保留。"}</p>
+        <p className="studio-caption">图片不支持拖入正文；口播和制作方案只编辑文字。移出列表不会删除历史版本中的图片。</p>
         {images.length ? <ul className="studio-writing-images">{images.map(image => {
           const news = image.source.kind === "news" ? image.source : null;
           const article = news ? externalUrl(news.articleUrl ?? project.snapshot.materials.find(material => material.id === news.materialId)?.url ?? null) : null;
           const original = news ? externalUrl(news.originalUrl) : null;
-          return <li key={image.assetId}><img src={image.url} alt={image.name} loading="lazy" draggable onDragStart={event => { event.dataTransfer.setData("application/x-fastlanenews-image", image.assetId); event.dataTransfer.effectAllowed = "copy"; }} /><span>{image.name}</span>
+          return <li key={image.assetId}><img src={image.url} alt={image.name} loading="lazy" draggable={false} /><span>{image.name}</span>
           {news && <><p className="studio-caption">新闻配图{news.revision ? ` · 文章版本 ${news.revision}` : ""} · 授权未知</p><div className="studio-actions">
             {article && <a href={article} target="_blank" rel="noreferrer">来源文章</a>}{original && <a href={original} target="_blank" rel="noreferrer">图片原链接</a>}
           </div></>}<div className="studio-actions">
-          <button onClick={() => insertImage(image)}>插入素材备注</button><button disabled={action.busy || dirty || blocked || uploading} onClick={() => action.run("DELETE", endpoint + `/images/${image.assetId}`, { version: version.current })}>移出素材列表</button>
-        </div></li>; })}</ul> : <p className="studio-caption">素材列表为空。可上传或粘贴图片；新闻配图采用选题冻结时已保存的图片。</p>}
+          <button disabled={action.busy || dirty || blocked || uploading} onClick={() => action.run("DELETE", endpoint + `/images/${image.assetId}`, { version: version.current })}>移出素材列表</button>
+        </div></li>; })}</ul> : <p className="studio-caption">素材列表为空。可上传图片；新闻配图采用选题冻结时已保存的图片。</p>}
       </section>
-    </section><aside className="studio-writing-support" aria-label="本稿引用新闻与视频">
-      <WritingReferences key={project.id} project={project} />
+      </div>
     </aside></div></div>
     <Dialog title="AI 改稿" open={tool === "revision"} onClose={() => setTool(null)} wide><div className="studio-writing-tools">      <WritingRevisions key={project.id} projectId={project.id} version={baseVersion} field={field} text={value.content[field]} prepare={async () => {
         const current = await save("manual"); return current !== null && same(latest.current, saved.current) ? current : null;
