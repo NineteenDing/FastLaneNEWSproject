@@ -14,7 +14,7 @@ const { app, headers } = await sourceResourceFixture();
 await app.ready();
 after(async () => { await app.close(); await stopBoss(); await closeDb(); });
 
-test("正文和引用独立屏内滚动，工具弹窗保留选区和输入，图片留在正文下方", async () => {
+test("纯文字正文和资料侧栏独立滚动，工具弹窗保留选区和输入，图片不进入正文", async () => {
   const seeded = await app.inject({ method: "POST", url: "/api/admin/studio/acceptance-examples", headers, payload: {} });
   assert.equal(seeded.statusCode, 200, seeded.body);
   const rows = (await app.inject({ url: "/api/admin/studio/drafts", headers })).json().rows;
@@ -30,19 +30,19 @@ test("正文和引用独立屏内滚动，工具弹窗保留选区和输入，�
   try {
     await page.goto(web.origin + `/admin/studio/writing/${id}`);
     await page.locator('input[name="password"]').fill("source-resource-password"); await page.locator('button[type="submit"]').click();
-    const rail = page.getByRole("complementary", { name: "本稿引用新闻与视频" });
+    const rail = page.getByRole("complementary", { name: "本稿资料" });
     await expect(rail.getByRole("heading", { level: 2 })).toHaveCount(1);
     await expect(rail.getByRole("heading", { name: "本稿全部引用", exact: true })).toBeVisible();
-    assert.equal(await page.locator(".studio-writing-main .studio-writing-assets").count(), 1);
+    assert.equal(await page.locator(".studio-writing-main .studio-writing-assets").count(), 0);
     await expect(page.getByRole("group", { name: "备用标题", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "备用标题", exact: true })).toHaveCount(0);
     const titleBox = await page.getByRole("textbox", { name: "稿件标题", exact: true }).boundingBox();
     const alternatives = await page.getByRole("group", { name: "备用标题", exact: true }).boundingBox();
-    const views = await page.getByRole("tablist", { name: "稿件内容", exact: true }).boundingBox();
+    const views = await page.getByRole("textbox", { name: "纯口播正文", exact: true }).boundingBox();
     assert.ok(titleBox && alternatives && views && titleBox.y + titleBox.height <= alternatives.y && alternatives.y + alternatives.height <= views.y);
     const bounds = await page.locator(".studio-writing-grid").boundingBox();
     assert.ok(bounds && bounds.y + bounds.height <= 900, JSON.stringify(bounds));
-    assert.equal(await page.locator(".studio-writing-body .studio-rich-editor > div:last-child").evaluate(node => {
+    assert.equal(await page.locator(".studio-writing-body textarea").evaluate(node => {
       const element = node as unknown as { scrollHeight: number; clientHeight: number }; return element.scrollHeight > element.clientHeight;
     }), true);
     const references = page.getByRole("region", { name: "引用内容列表", exact: true });
@@ -53,8 +53,7 @@ test("正文和引用独立屏内滚动，工具弹窗保留选区和输入，�
     assert.ok(await references.evaluate(node => (node as unknown as { scrollTop: number }).scrollTop) > 0);
     assert.equal(await page.evaluate("scrollY"), 0);
     await page.screenshot({ path: ".impeccable/review/writing-screen-1440.png" });
-    await page.getByRole("checkbox", { name: "Markdown", exact: true }).check();
-    const markdown = page.getByRole("textbox", { name: "纯口播 Markdown", exact: true });
+    const markdown = page.getByRole("textbox", { name: "纯口播正文", exact: true });
     await markdown.focus(); await markdown.evaluate(node => (node as unknown as { setSelectionRange(start: number, end: number): void }).setSelectionRange(0, 8));
     await page.getByRole("button", { name: "AI 改稿", exact: true }).click();
     const revision = page.getByRole("dialog", { name: "AI 改稿", exact: true });

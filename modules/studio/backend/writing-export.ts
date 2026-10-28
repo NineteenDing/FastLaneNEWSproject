@@ -8,7 +8,7 @@ import { sql } from "@aihot/backend/db";
 import { Conflict } from "@aihot/backend/audit";
 import { writingProject, writingVersion, changeWritingVersion } from "./writing-projects.ts";
 import { createImageAssets } from "./image-assets.ts";
-import { writingImageIds, validateWritingImageSources } from "./writing-images.ts";
+import { writingImageIds, writingImages, validateWritingImageSources } from "./writing-images.ts";
 import { imageAssetReferences, isManagedImageUrl } from "../image-references.ts";
 import type { WritingImage } from "../contracts.ts";
 import type { WritingContent, WritingVersion } from "../contracts.ts";
@@ -80,7 +80,11 @@ export async function exportWriting(id: string, input: unknown, actor: string) {
   if (!frozen) throw new Conflict("稿件版本尚未保存，请保存后重试");
   let version = frozen;
   assertOfflineImages(version.content);
-  const ids = writingImageIds(version.content);
+  // Confirmed exports reuse the retained gallery; later attachment edits cannot rewrite it.
+  const galleryIds = value.mode === "final" && project.state === "final"
+    ? (await sql<{ image_id: string }[]>`SELECT image_id FROM studio_image_references WHERE owner = ${`draft-version:${id}:${version.version}`}`).map(image => image.image_id)
+    : (await writingImages(id))?.rows.map(image => image.assetId) ?? [];
+  const ids = [...new Set([...writingImageIds(version.content), ...galleryIds])];
   if (ids.length > 1000) throw new Conflict("图片过多，请拆分稿件后导出");
   const images = ids.length ? await sql<Image[]>`SELECT i.image_id AS "assetId", i.name, i.source, a.bytes, a.content_type AS type
     FROM studio_writing_images i JOIN studio_image_assets a ON a.id = i.image_id AND a.state = 'ready'
@@ -90,11 +94,12 @@ export async function exportWriting(id: string, input: unknown, actor: string) {
     (_match, hash: string) => imageFile(images.find(image => image.assetId === hash)!));
   const sources = project.snapshot.materials.map(material => `- ${material.source.name}：${material.title}\n  原文：${material.url}\n  用途：${project.snapshot.references.filter(ref => ref.materialId === material.id).map(ref => ({ fact: "事实依据", expression: "表达参考", counterpoint: "反例与限制" })[ref.role]).join("、")}`).join("\n\n");
   const content: WritingContent = { spoken: rewrite(version.content.spoken), production: rewrite(version.content.production), notes: rewrite(version.content.notes) };
+  const gallery = images.map(image=>`![${image.name.replace(/[\[\]\\]/g,'\\$&')}](${imageFile(image)})`).join('\n\n');
   // Noncanonical HTML entities can survive literal rewriting. Never ship those as a seemingly complete ZIP.
   assertOfflineImages(content, true);
   const documents = (version: WritingVersion) => ({ "口播稿.md": `# ${version.title}\n\n${content.spoken}\n`, "制作方案.md": `# 制作方案\n\n${content.production}\n`,
-    "素材与备注.md": `# 素材与备注\n\n${content.notes}\n`, "来源清单.md": `# 来源清单\n\n${sources}\n`,
-    "完整制作稿.md": `# ${version.title}\n\n${value.mode === "final" ? "定稿" : "草稿"} · 版本 ${version.version}\n\n## 口播正文\n\n${content.spoken}\n\n## 制作方案\n\n${content.production}\n\n## 素材与备注\n\n${content.notes}\n\n## 来源\n\n${sources}\n`,
+    "素材与备注.md": `# 素材与备注\n\n${content.notes}\n`, "图片素材.md": `# 图片素材\n\n${gallery}\n`, "来源清单.md": `# 来源清单\n\n${sources}\n`,
+    "完整制作稿.md": `# ${version.title}\n\n${value.mode === "final" ? "定稿" : "草稿"} · 版本 ${version.version}\n\n## 口播正文\n\n${content.spoken}\n\n## 制作方案\n\n${content.production}\n\n## 素材与备注\n\n${content.notes}\n\n## 图片素材\n\n${gallery}\n\n## 来源\n\n${sources}\n`,
     "manifest.json": JSON.stringify({ projectId: id, version: version.version, state: value.mode, title: version.title, savedAt: version.createdAt,
       skills: project.snapshot.skills.map(({ id, version, name }) => ({ id, version, name })), images: images.map(({ assetId, name, source }) => ({ assetId, name, source })) }, null, 2),
   });
@@ -116,7 +121,7 @@ export async function exportWriting(id: string, input: unknown, actor: string) {
   const previewVersion = value.mode === "final" && project.state !== "final" ? { ...version, version: version.version + 1 } : version;
   const html = value.format === "html" ? offlineHtml(previewVersion.title, documents(previewVersion)["完整制作稿.md"], embedded) : null;
   if (value.mode === "final") {
-    const confirmed = await changeWritingVersion(id, { version: value.version }, "final", actor);
+    const confirmed = await changeWritingVersion(id, { version: value.version }, "final", actor, ids);
     if (!confirmed) throw new Conflict("稿件暂不可用，请刷新后重试");
     const saved = await writingVersion(id, confirmed.version);
     if (!saved) throw new Conflict("定稿未能读取，请刷新后重试");

@@ -156,7 +156,7 @@ export async function writingVersion(id: string, version: unknown, db: typeof sq
   return row ? { ...row, createdAt: row.createdAt.toISOString() } : null;
 }
 
-export async function changeWritingVersion(id: string, input: unknown, mode: "final" | "restore", actor: string) {
+export async function changeWritingVersion(id: string, input: unknown, mode: "final" | "restore", actor: string, finalGallery?: string[]) {
   z.uuid().parse(id);
   const value = z.object({ version: z.number().int().positive(), ...(mode === "restore" ? { restoreVersion: z.number().int().positive() } : {}) }).strict().parse(input);
   return sql.begin(async db => {
@@ -169,7 +169,7 @@ export async function changeWritingVersion(id: string, input: unknown, mode: "fi
     if (mode === "restore" && !previous) throw new Conflict("要恢复的历史版本不存在");
     if (previous && !previous.skills) throw new Conflict("历史版本的写作规则无法读取，请保留当前稿件并检查历史记录");
     const source = previous ?? row;
-    await protectWritingImages(db, id, row.version + 1, source.content);
+    await protectWritingImages(db, id, row.version + 1, source.content, mode === "final" ? finalGallery ?? true : []);
     const [saved] = await db<Row[]>`UPDATE studio_writing_projects SET title = ${source.title}, title_options = ${db.json(source.titleOptions ?? [])}, instructions = ${source.instructions},
       content = ${db.json(source.content as never)}, version = version + 1, state = ${mode === "final" ? "final" : "draft"}, updated_at = now()
       WHERE id = ${id} RETURNING ${columns}`;

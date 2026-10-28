@@ -96,8 +96,10 @@ export async function removeWritingImage(id: string, assetId: string, input: unk
 }
 
 /** Each saved version keeps its own durable reference, including after removal from the attachment list. */
-export async function protectWritingImages(db: Tx, id: string, version: number, content: WritingContent) {
-  const ids = writingImageIds(content);
+export async function protectWritingImages(db: Tx, id: string, version: number, content: WritingContent, gallery: true | string[] = []) {
+  // Draft attachments already have removable owners; only confirmation freezes the full gallery.
+  const visible = gallery === true ? (await db<{ image_id: string }[]>`SELECT image_id FROM studio_writing_images WHERE project_id = ${id} AND removed_at IS NULL`).map(image => image.image_id) : gallery;
+  const ids = [...new Set([...writingImageIds(content), ...visible])];
   if (!ids.length) return;
   const owned = await db`SELECT image_id FROM studio_writing_images WHERE project_id = ${id} AND image_id IN ${db(ids)}`;
   if (owned.length !== ids.length) throw new Conflict("图片尚未关联到这篇稿件，请先上传或从本稿素材中插入");

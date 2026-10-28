@@ -477,9 +477,9 @@ test("网页采纳方向进入独立编辑，三稿分别自动保存、定稿�
     await expect(stale.getByRole("heading", { name: "本地内容已保留", exact: true })).toBeVisible(); assert.equal((await read(id)).content.spoken, firstText);
     await page.getByRole("button", { name: "确认定稿", exact: true }).click(); await expect.poll(async () => (await read(id)).state).toBe("final");
     await page.getByRole("tab", { name: "制作方案", exact: true }).click();
-    await page.getByRole("textbox", { name: "制作方案正文", exact: true }).click(); await page.getByRole("textbox", { name: "制作方案正文", exact: true }).fill("录屏展示参考图与两镜头对照。");
+    await page.getByRole("textbox", { name: "制作方案与备注", exact: true }).click(); await page.getByRole("textbox", { name: "制作方案与备注", exact: true }).fill("录屏展示参考图与两镜头对照。");
     await expect.poll(async () => (await read(id)).content.production).toBe("录屏展示参考图与两镜头对照。");
-    await page.getByRole("tab", { name: "纯口播", exact: true }).click(); await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toContainText(firstText);
+    await page.getByRole("textbox", { name: "纯口播正文", exact: true }).focus(); await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toHaveValue(firstText);
     await page.setViewportSize({ width: 1440, height: 1100 }); await capture("editor-desktop");
     await page.setViewportSize({ width: 390, height: 1100 }); await capture("editor-mobile");
     await third.getByRole("button", { name: "生成口播稿", exact: true }).click();
@@ -488,9 +488,9 @@ test("网页采纳方向进入独立编辑，三稿分别自动保存、定稿�
     const boss = await getBoss();
     await expect.poll(async () => (await app.inject({ url: `/api/admin/studio/drafts/${thirdId}/generation`, headers })).json().state).toBe("queued");
     const [job] = await boss.fetch(writingGenerationQueue.name); assert.ok(job); await writingGenerationQueue.run([job.data] as never[]); await boss.complete(writingGenerationQueue.name, job.id);
-    await third.getByRole("button", { name: "刷新进度", exact: true }).click(); await third.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click(); await expect(third.getByRole("textbox", { name: "纯口播正文", exact: true })).toContainText(spoken);
+    await third.getByRole("button", { name: "刷新进度", exact: true }).click(); await third.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click(); await expect(third.getByRole("textbox", { name: "纯口播正文", exact: true })).toHaveValue(spoken);
     assert.equal((await read(id)).content.spoken, firstText); assert.equal((await read(secondId)).content.spoken, "第二篇只讲光线检查。");
-    const calls = writingRequests.length; await page.reload(); await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toContainText(firstText); assert.equal(writingRequests.length, calls);
+    const calls = writingRequests.length; await page.reload(); await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toHaveValue(firstText); assert.equal(writingRequests.length, calls);
     unavailable = true; await page.reload(); await expect(page.getByRole("heading", { name: "稿件未能加载", exact: true })).toBeVisible(); await capture("error-mobile");
     unavailable = false; await page.getByRole("button", { name: "重新加载", exact: true }).click(); await expect(page.getByRole("heading", { name: "编辑稿件", exact: true })).toBeVisible();
     assert.equal(writingRequests.length, calls);
@@ -506,7 +506,7 @@ test("网页采纳方向进入独立编辑，三稿分别自动保存、定稿�
     await offline.setViewportSize({ width: 390, height: 1100 }); await offline.getByRole("heading", { name: "发现本机未同步稿件", exact: true }).scrollIntoViewIfNeeded();
     assert.equal(await offline.evaluate("document.documentElement.scrollWidth > innerWidth"), false); await offline.screenshot({ path: ".impeccable/review/writing-recovery-mobile.png" });
     await offline.getByRole("button", { name: "恢复本机内容", exact: true }).click();
-    await expect(offline.getByRole("textbox", { name: "纯口播正文", exact: true })).toContainText("离线窗口的独立恢复内容，不能被另一个窗口清掉。");
+    await expect(offline.getByRole("textbox", { name: "纯口播正文", exact: true })).toHaveValue("离线窗口的独立恢复内容，不能被另一个窗口清掉。");
     assert.equal((await read(secondId)).content.spoken, "这个窗口已成功同步的内容。"); await offline.close();
     let history = await read(id);
     for (let index = 0; index < 31; index++) history = (await app.inject({ method: "PATCH", url: `/api/admin/studio/drafts/${id}`, headers,
@@ -540,40 +540,30 @@ test("网页采纳方向进入独立编辑，三稿分别自动保存、定稿�
     await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toBeVisible();
     if (await page.getByRole("button", { name: "本次使用服务器版本", exact: true }).count()) await page.getByRole("button", { name: "本次使用服务器版本", exact: true }).click();
     const sharp = (await import("sharp")).default;
-    const picture = await sharp({ create: { width: 640, height: 360, channels: 3, background: "#e6f1f0" } }).png().toBuffer();
-    await page.getByLabel("上传支撑图片", { exact: true }).setInputFiles({ name: "上传的参考图.png", mimeType: "image/png", buffer: picture });
-    await expect(page.getByRole("tab", { name: "素材与备注", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(".studio-rich-editor img")).toHaveCount(1);
-    await expect(page.locator(".studio-rich-editor img")).toHaveAttribute("src", /^\/api\/admin\/studio\/image-assets\/[a-f0-9]{64}$/);
-    await expect.poll(async () => (await read(id)).content.notes.includes("/api/admin/studio/image-assets/")).toBe(true);
-    await page.getByRole("tab", { name: "纯口播", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toContainText(firstText);
-    const pasted = await sharp({ create: { width: 640, height: 360, channels: 3, background: "#eee9db" } }).png().toBuffer();
-    await page.getByRole("textbox", { name: "纯口播正文", exact: true }).click();
+    await page.getByRole('tab',{name:'图片素材',exact:true}).click();
+    const picture = await sharp({create:{width:640,height:360,channels:3,background:'#e6f1f0'}}).png().toBuffer();
+    await page.getByLabel('上传支撑图片',{exact:true}).setInputFiles({name:'上传的参考图.png',mimeType:'image/png',buffer:picture});
+    await expect(page.locator('.studio-writing-images img')).toHaveCount(1);
+    const pasted = await sharp({create:{width:640,height:360,channels:3,background:'#eee9db'}}).png().toBuffer();
     await page.evaluate(`(() => {
-      const bytes = Uint8Array.from(atob(${JSON.stringify(pasted.toString("base64"))}), letter => letter.charCodeAt(0)), clipboard = new DataTransfer();
-      clipboard.items.add(new File([bytes], "粘贴的镜头图.png", { type: "image/png" }));
-      document.querySelector('[role="textbox"][aria-label="纯口播正文"]').dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: clipboard }));
+      const bytes=Uint8Array.from(atob(${JSON.stringify(pasted.toString('base64'))}),letter=>letter.charCodeAt(0)),clipboard=new DataTransfer();clipboard.items.add(new File([bytes],'禁止粘入口播.png',{type:'image/png'}));
+      document.querySelector('textarea[aria-label="纯口播正文"]').dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:clipboard}));
     })()`);
-    await expect(page.getByRole("tab", { name: "素材与备注", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.locator(".studio-rich-editor img")).toHaveCount(2);
-    await expect.poll(async () => (await read(id)).content.notes.match(/\/api\/admin\/studio\/image-assets\//g)?.length).toBe(2);
-    assert.equal((await read(id)).content.spoken, firstText); assert.equal((await read(secondId)).content.notes, "");
-    let remoteImages = 0;
-    await page.route("**/images-writing.external.invalid/**", route => { remoteImages++; return route.abort(); });
-    const notes = (await read(id)).content.notes;
-    await page.getByRole("checkbox", { name: "Markdown", exact: true }).check();
-    await page.getByRole("textbox", { name: "素材与备注 Markdown", exact: true }).fill(notes + "\n\n![外部未导入图片](https://images-writing.external.invalid/tracker.png)");
-    await page.getByRole("checkbox", { name: "Markdown", exact: true }).uncheck();
-    await expect(page.getByText("外链图片尚未导入，请先上传到本稿素材。", { exact: true })).toBeVisible(); assert.equal(remoteImages, 0);
-    await expect(page.locator(".studio-rich-editor img")).toHaveCount(2);
-    await expect.poll(async () => (await read(id)).content.notes.includes("https://images-writing.external.invalid/tracker.png")).toBe(true);
-    await page.getByRole("button", { name: "复制与导出", exact: true }).click();
-    await page.getByRole("button", { name: "下载 ZIP 草稿", exact: true }).click(); await expect(page.getByText("存在尚未导入的图片，请先上传到本稿素材再导出完整离线包", { exact: true })).toBeVisible();
-    await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
-    await page.getByRole("checkbox", { name: "Markdown", exact: true }).check(); await page.getByRole("textbox", { name: "素材与备注 Markdown", exact: true }).fill(notes);
-    await page.getByRole("checkbox", { name: "Markdown", exact: true }).uncheck(); await expect.poll(async () => (await read(id)).content.notes).toBe(notes);
-    await page.getByRole("button", { name: "复制与导出", exact: true }).click();
+    await expect(page.getByRole('textbox',{name:'纯口播正文',exact:true})).toHaveValue(firstText);
+    await expect(page.locator('.studio-writing-images img')).toHaveCount(1);
+    await page.getByLabel('上传支撑图片',{exact:true}).setInputFiles({name:'第二张素材图.png',mimeType:'image/png',buffer:pasted});
+    await expect(page.locator('.studio-writing-images img')).toHaveCount(2);
+    assert.equal((await read(secondId)).content.notes,'');
+    let remoteImages=0;await page.route('**/images-writing.external.invalid/**',route=>{remoteImages++;return route.abort();});
+    await page.getByRole('tab',{name:'制作方案',exact:true}).click();
+    const plan=page.getByRole('textbox',{name:'制作方案与备注',exact:true}),notes=await plan.inputValue();
+    await plan.fill(notes+'\n\n![外部未导入图片](https://images-writing.external.invalid/tracker.png)');
+    await page.getByRole('button',{name:'保存',exact:true}).click();assert.equal(remoteImages,0);
+    await page.getByRole('button',{name:'复制与导出',exact:true}).click();
+    await page.getByRole('button',{name:'下载 ZIP 草稿',exact:true}).click();await expect(page.getByText('存在尚未导入的图片，请先上传到本稿素材再导出完整离线包',{exact:true})).toBeVisible();
+    await page.getByRole('dialog').getByRole('button',{name:'关闭',exact:true}).click();await plan.fill(notes);
+    await page.getByRole('button',{name:'保存',exact:true}).click();await expect.poll(async()=>(await read(id)).content.production).toBe(notes);
+    await page.getByRole('button',{name:'复制与导出',exact:true}).click();
     const draftDownload = page.waitForEvent("download"); await page.getByRole("button", { name: "下载 ZIP 草稿", exact: true }).click(); const draftZip = await draftDownload;
     const zipPath = await draftZip.path(); assert.ok(zipPath); const { unzipSync, strFromU8 } = await import("fflate"), archive = unzipSync(await fs.readFile(zipPath));
     assert.equal(Object.keys(archive).filter(name => /\/images\/[a-f0-9]+\.png$/.test(name)).length, 2);
@@ -582,11 +572,11 @@ test("网页采纳方向进入独立编辑，三稿分别自动保存、定稿�
     const finalDownload = page.waitForEvent("download"); await page.getByRole("button", { name: "定稿并下载 ZIP", exact: true }).click(); const finalZip = await finalDownload;
     assert.ok(finalZip.suggestedFilename().endsWith("-final.zip")); assert.equal((await read(id)).state, "final");
     await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]); await page.getByRole("tab", { name: "纯口播", exact: true }).click(); await page.getByRole("button", { name: "复制与导出", exact: true }).click(); await page.getByRole("button", { name: "复制富文本", exact: true }).click();
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]); await page.getByRole("textbox", { name: "纯口播正文", exact: true }).focus(); await page.getByRole("button", { name: "复制与导出", exact: true }).click(); await page.getByRole("button", { name: "复制富文本", exact: true }).click();
     await expect.poll(async () => page.evaluate("navigator.clipboard.readText().then(text => text.trim())")).toBe(firstText);
-    const types = await page.evaluate("navigator.clipboard.read().then(items => items[0].types)"); assert.ok(Array.isArray(types)); assert.ok(types.includes("text/html")); assert.ok(types.includes("text/plain"));
+    const types = await page.evaluate("navigator.clipboard.read().then(items => items[0].types)"); assert.ok(Array.isArray(types)); assert.ok(types.includes("text/plain"));
     await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
-    await page.getByRole("tab", { name: "素材与备注", exact: true }).click();
+    await page.getByRole("tab", { name: "图片素材", exact: true }).click();
     await page.setViewportSize({ width: 1440, height: 1100 }); await capture("images-desktop");
     await page.setViewportSize({ width: 390, height: 1100 }); await capture("images-mobile");
     assert.equal(writingRequests.length, calls);
@@ -627,8 +617,7 @@ test("网页采纳方向进入独立编辑，三稿分别自动保存、定稿�
       assert.equal(await copiedPage.evaluate("document.documentElement.scrollWidth > innerWidth"), false);
       await copiedPage.screenshot({ path: `.impeccable/review/writing-copy-${suffix}.png` });
     }
-    await copiedPage.getByRole("checkbox", { name: "Markdown", exact: true }).check();
-    await copiedPage.getByRole("textbox", { name: "纯口播 Markdown", exact: true }).fill("副本窗口的独立口播。");
+    await copiedPage.getByRole("textbox", { name: "纯口播正文", exact: true }).fill("副本窗口的独立口播。");
     await copiedPage.getByRole("button", { name: "保存", exact: true }).click();
     await expect.poll(async () => (await read(copyId)).content.spoken).toBe("副本窗口的独立口播。");
     assert.deepEqual(await read(id), originalAfterCopy); await copiedPage.close();
@@ -1379,13 +1368,13 @@ test("写稿页可查看冻结新闻图出处、插入保存和独立移除，�
   try {
     await page.goto(web.origin + `/admin/studio/writing/${created.json().id}`);
     await page.locator('input[name="password"]').fill(config.adminPassword!); await page.locator('button[type="submit"]').click();
+    await page.getByRole("tab", {name:"图片素材",exact:true}).click();
     const gallery = page.locator(".studio-writing-images"), image = gallery.getByRole("img", { name: "隔离测试：角色参考图设置", exact: true });
     await expect(image).toBeVisible(); await expect(image).toHaveJSProperty("naturalWidth", 360);
     await expect(gallery).toContainText("文章版本 1 · 授权未知");
     await expect(gallery.getByRole("link", { name: "来源文章", exact: true })).toHaveAttribute("href", fixture.articleUrl);
     await expect(gallery.getByRole("link", { name: "图片原链接", exact: true })).toHaveAttribute("href", fixture.sourceUrl);
-    await gallery.getByRole("button", { name: "插入素材备注", exact: true }).click();
-    await expect.poll(async () => (await app.inject({ url: endpoint, headers })).json().content.notes).toContain(fixture.assetId);
+    await expect(gallery.getByRole("button", { name: "插入素材备注", exact: true })).toHaveCount(0);
     await expect(gallery.getByRole("button", { name: "移出素材列表", exact: true })).toBeEnabled();
     await capture("desktop"); await page.setViewportSize({ width: 390, height: 1100 }); await capture("mobile");
     await gallery.getByRole("button", { name: "移出素材列表", exact: true }).click();
@@ -1394,11 +1383,11 @@ test("写稿页可查看冻结新闻图出处、插入保存和独立移除，�
     const download = page.waitForEvent("download"); await page.getByRole("button", { name: "下载 ZIP 草稿", exact: true }).click();
     const file = await (await download).path(); assert.ok(file);
     const { unzipSync } = await import("fflate"), archive = unzipSync(await fs.readFile(file));
-    assert.ok(Object.keys(archive).some(name => name.endsWith(`/images/${fixture.assetId}.png`)));
+    assert.ok(!Object.keys(archive).some(name => name.endsWith(`/images/${fixture.assetId}.png`)), "移除且未写入正文的素材不再包含于当前导出");
     await page.goto(web.origin + `/admin/studio/writing/${fixture.generatedId}`);
-    await page.getByRole("tab", { name: "素材与备注", exact: true }).click();
-    await expect(page.locator(".studio-rich-editor .tiptap img")).toHaveCount(1);
-    await expect(page.getByRole("heading", { name: "推荐配图", exact: true })).toBeVisible();
+    await page.getByRole("tab", { name: "图片素材", exact: true }).click();
+    await expect(page.locator(".studio-writing-images img")).toHaveCount(1);
+    await expect(page.locator(".studio-writing-body img")).toHaveCount(0);
     await capture("generated-mobile");
     assert.equal(sourceRequests, 0); assert.equal(writingRequests.length, calls);
   } finally { await browser.close(); await web.stop(); }
@@ -1526,6 +1515,39 @@ test("单文件HTML导出嵌入真实图片可离线查看，去掉脚本且定�
   const imageData = /src="data:image\/png;base64,([A-Za-z0-9+/=]+)"/.exec(html); assert.ok(imageData);
   const actual = await sharp(Buffer.from(imageData[1]!, "base64")).metadata(); assert.equal(actual.width, 64); assert.equal(actual.height, 64);
   assert.equal((await app.inject({ url: endpoint, headers })).json().state, "final");
+});
+
+test("纯口播定稿冻结未内嵌图片，后续素材增删不改变同版本导出或清理保护", async t => {
+  const batch = await reviewedBatch(t);
+  const created = await app.inject({ method: "POST", url: "/api/admin/studio/drafts", headers,
+    payload: { requestId: randomUUID(), batchId: batch.batchId, directionIds: ["reference"] } });
+  const endpoint = "/api/admin/studio/drafts/" + created.json().id;
+  const upload = async (color: string) => {
+    const png = await sharp({ create: { width: 64, height: 64, channels: 3, background: color } }).png().toBuffer();
+    const result = await app.inject({ method: "POST", url: endpoint + "/images", headers,
+      payload: { name: color + ".png", contentType: "image/png", bodyBase64: png.toString("base64") } });
+    assert.equal(result.statusCode, 200); return result.json();
+  };
+  const first = await upload("#123456");
+  assert.equal((await app.inject({ method: "PATCH", url: endpoint, headers, payload: { version: 1,
+    content: { spoken: "保留纯口播，图片只在素材栏。", production: "", notes: "" } } })).statusCode, 200);
+  const download = async (mode: "draft" | "final", version: number) => {
+    const result = await app.inject({ method: "POST", url: endpoint + "/export", headers, payload: { version, mode } });
+    assert.equal(result.statusCode, 200);
+    const { unzipSync, strFromU8 } = await import("fflate"), files = unzipSync(result.rawPayload);
+    return JSON.parse(strFromU8(files[Object.keys(files).find(name => name.endsWith("/manifest.json"))!]!));
+  };
+  const frozen = await download("final", 2); assert.equal(frozen.version, 3);
+  assert.ok(frozen.images.some((image: { assetId: string }) => image.assetId === first.assetId));
+  assert.equal((await app.inject({ method: "DELETE", url: endpoint + "/images/" + first.assetId, headers, payload: { version: 3 } })).statusCode, 200);
+  const later = await upload("#654321");
+  assert.equal((await app.inject({ method: "POST", url: endpoint + "/finalize", headers, payload: { version: 3 } })).statusCode, 200);
+  assert.deepEqual((await download("final", 3)).images, frozen.images);
+  const draft = await download("draft", 3);
+  assert.ok(draft.images.some((image: { assetId: string }) => image.assetId === later.assetId));
+  const { createImageAssets } = await import("../backend/image-assets.ts");
+  await createImageAssets().prune(new Date(Date.now() + 60_000));
+  assert.equal((await app.inject({ url: first.url, headers })).statusCode, 200);
 });
 
 test("本稿只冻结所选表达作者的已保存模式，移除关注不改旧稿，初稿和润色均使用原版本", async t => {

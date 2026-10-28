@@ -111,18 +111,17 @@ test("正文默认预览，点击编辑后离开保存；切换同批稿件先�
   const page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
   try {
     await page.goto(web.origin + `/admin/studio/writing/${first.id}`); await page.locator('input[name="password"]').fill(config.adminPassword!); await page.locator('button[type="submit"]').click();
-    await expect(page.locator(".tiptap")).toHaveAttribute("contenteditable", "false");
-    await page.locator(".tiptap").click(); const text = page.getByRole("textbox", { name: "纯口播正文", exact: true }); await expect(text).toBeEditable();
+    const text = page.getByRole("textbox", { name: "纯口播正文", exact: true }); await expect(text).toBeEditable();
     await text.fill("本机编辑后的独立口播。");
     await page.getByRole("navigation", { name: "本期稿件", exact: true }).getByRole("link", { name: /角色参考怎么用/ }).click();
     await expect(page).toHaveURL(new RegExp(`/writing/${second.id}$`));
     assert.equal((await app.inject({ url: `/api/admin/studio/drafts/${first.id}`, headers })).json().content.spoken.trim(), "本机编辑后的独立口播。");
     assert.deepEqual((await app.inject({ url: `/api/admin/studio/drafts/${second.id}`, headers })).json(), otherBefore);
     await page.getByRole("navigation", { name: "本期稿件", exact: true }).locator(`a[href="/admin/studio/writing/${first.id}"]`).click();
-    await expect(page.locator(".tiptap")).toHaveAttribute("contenteditable", "false"); await expect(page.locator(".tiptap")).toContainText("本机编辑后的独立口播。");
-    await page.locator(".tiptap").click(); await page.getByRole("textbox", { name: "纯口播正文", exact: true }).fill("离开正文也要保留的口播。");
+    await expect(page.getByRole("textbox", { name: "纯口播正文", exact: true })).toHaveValue("本机编辑后的独立口播。");
+    await page.getByRole("textbox", { name: "纯口播正文", exact: true }).fill("离开正文也要保留的口播。");
     await page.getByRole("textbox", { name: "稿件标题", exact: true }).click();
-    await expect(page.locator(".tiptap")).toHaveAttribute("contenteditable", "false");
+    await expect(text).toBeEditable();
     await expect(page.getByRole("status").filter({ hasText: "已保存" }).first()).toBeVisible();
     assert.equal((await app.inject({ url: `/api/admin/studio/drafts/${first.id}`, headers })).json().content.spoken.trim(), "离开正文也要保留的口播。");
   } finally { await page.close(); await browser.close(); await web.stop(); }
@@ -170,21 +169,20 @@ test("写稿工作区可换删标题、搜索阅读引用、拖图存稿导出�
     await references.getByRole("textbox", { name: "搜索本稿参考", exact: true }).fill("参考图与镜头工具");
     await references.getByRole("button", { name: "参考图与镜头工具", exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText(body); await page.keyboard.press("Escape");
+    await page.getByRole("tab", { name: "图片素材", exact: true }).click();
+    await expect(page.locator(".studio-writing-images img")).toHaveAttribute("draggable", "false");
+    const spoken = page.getByRole("textbox", { name: "纯口播正文", exact: true });
+    const transfer = await page.evaluateHandle("(() => { const data=new DataTransfer();data.setData('application/x-fastlanenews-image','ignored');return data; })()");
+    await spoken.dispatchEvent('drop',{dataTransfer:transfer});await expect(spoken).toHaveValue('');
     await page.getByRole("tab", { name: "制作方案", exact: true }).click();
-    await expect(page.locator(".tiptap")).toHaveAttribute("contenteditable", "false");
-    const transfer = await page.evaluateHandle("new DataTransfer()");
-    await page.locator(".studio-writing-images img").dispatchEvent("dragstart", { dataTransfer: transfer });
-    assert.equal(await transfer.evaluate(value => (value as { getData(type: string): string }).getData("application/x-fastlanenews-image")), uploaded.json().assetId);
-    await page.locator(".tiptap").dispatchEvent("dragover", { dataTransfer: transfer });
-    await page.locator(".tiptap").dispatchEvent("drop", { dataTransfer: transfer });
-    await expect(page.locator(".tiptap img")).toHaveAttribute("src", uploaded.json().url);
-    await page.getByRole("textbox", { name: "稿件标题", exact: true }).click();
-    await expect.poll(async () => (await app.inject({ url: endpoint, headers })).json().content.production).toContain(uploaded.json().url);
+    await page.getByRole("textbox", { name: "制作方案与备注", exact: true }).fill('独立的制作方案，不将图片写入口播。');
+    await page.getByRole("button",{name:'保存',exact:true}).click();
+    await expect.poll(async () => (await app.inject({ url: endpoint, headers })).json().content.production).toBe('独立的制作方案，不将图片写入口播。');
     const current = (await app.inject({ url: endpoint, headers })).json(); assert.equal(current.content.spoken, "");
     const exported = await app.inject({ method: "POST", url: endpoint + "/export", headers, payload: { version: current.version, mode: "draft", format: "zip" } });
     assert.equal(exported.statusCode, 200, exported.body.slice(0, 200));
     const files = unzipSync(exported.rawPayload); assert.ok(Object.keys(files).some(name => name.includes("images/")));
-    assert.ok(Object.entries(files).some(([name, content]) => name.endsWith("制作方案.md") && strFromU8(content).includes("images/")));
+    assert.ok(Object.entries(files).some(([name, content]) => name.endsWith("图片素材.md") && strFromU8(content).includes("images/")));
     for (const width of [1440, 390]) { await page.setViewportSize({ width, height: 1100 }); assert.equal(await page.evaluate("document.documentElement.scrollWidth > innerWidth"), false); await page.screenshot({ path: `.impeccable/review/writing-workspace-${width}.png`, fullPage: true }); }
     await page.goto(web.origin + "/admin/studio/writing?view=history");
     await expect(page.getByRole("link", { name: "全部稿件", exact: true })).toHaveAttribute("aria-current", "page");
