@@ -27,7 +27,12 @@ export async function sharedAnalysisUser(key: string, user: string, material: To
       SELECT id, label, evidence FROM studio_shared_events WHERE terms && ${words}::text[]
         AND created_at >= ${new Date(Date.now() - 30 * 86400_000)}
       ORDER BY cardinality(ARRAY(SELECT term FROM unnest(terms) term WHERE term = ANY(${words}::text[]))) DESC, created_at DESC, id LIMIT 12` : [];
-    const input = { ...JSON.parse(user), eventCandidates };
+    // Recall identifies an event; its old scores/scope must never anchor this material's judgement.
+    // Previously frozen contexts remain untouched above so paid recovery keeps its exact input.
+    const input = { ...JSON.parse(user), eventCandidates: eventCandidates.map(candidate => ({ id: candidate.id,
+      label: candidate.label.slice(0, 180), identity: candidate.evidence?.event?.identity?.slice(0, 240) ?? null,
+      facts: (candidate.evidence?.facts ?? []).slice(0, 2).map(fact => fact.text.slice(0, 180)),
+      time: candidate.evidence?.event?.time?.at ?? null })) };
     await db`INSERT INTO studio_shared_analysis_contexts (key, input) VALUES (${key}, ${db.json(input)})`;
     return { user: stableJson(input), candidateIds: eventCandidates.map(event => event.id) };
   });

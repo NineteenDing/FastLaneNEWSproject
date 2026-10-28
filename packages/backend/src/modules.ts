@@ -217,7 +217,7 @@ export interface RequestNotices {
 }
 
 export interface PublicationJudgement {
-  route?: string; admittedAt?: string;
+  route?: string; admittedAt?: string; qualificationKey?: string; qualifiedAt?: string;
   allowed: boolean;
   title: string;
   summary: string | null;

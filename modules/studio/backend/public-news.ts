@@ -4,7 +4,8 @@ import type { PublicationJudgement } from "@aihot/backend/modules";
 import { publishArticleTx } from "@aihot/backend/publication/publish";
 import { emit } from "@aihot/backend/modules";
 import { currentFilterPolicy } from "./filter-settings.ts";
-import { referenceCapacity } from "./reference-quota.ts";
+import { sha256, stableJson } from "@aihot/backend/lib/ids";
+import { referenceCapacity, retainedReferenceCandidate } from "./reference-quota.ts";
 import { editorialEvidenceScope } from "./editorial-evidence.ts";
 import { scoringRecords, scoreMaterialV2 } from "./filter-scoring.ts";
 import { currentColumnContext } from "./column-matching.ts";
@@ -86,7 +87,12 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     // version still require approval; explicit withdrawals/source isolation remain enforced by publish/read guards.
     const retained = previous?.source_key===record.sourceKey && previous.decision.allowed===true && !record.private
       && source?.participation_mode==='editorial';
-    let allowed = retained || (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
+    const qualificationKey = sha256(stableJson({sourceKey:record.sourceKey,policy:policy.version,scope:record.analysis?.shared?.editorialScope,
+      ai:record.analysis?.shared?.aiCentral,film:record.analysis?.shared?.filmRelevant,facts:record.analysis?.shared?.facts,v2:record.analysis?.shared?.v2,
+      scopeFactIds:record.analysis?.shared?.scopeFactIds,aiRole:record.analysis?.shared?.aiRole,kind:record.analysis?.shared?.reportingKind}));
+    const waitingReference = retainedReferenceCandidate(previous?.decision,qualificationKey) && !record.private && record.complete
+      && source?.participation_mode==='editorial' && score.summaryState==='ok';
+    let allowed = retained || waitingReference || (score.eligiblePublic === true || archived) && score.summaryState === "ok" && record.publishedAt !== null && source?.participation_mode === "editorial";
     const images = [...(source?.media ?? []), ...(source?.x_post?.media ?? []), { url: source?.x_post?.avatarUrl }]
       .flatMap(media => [media.url, media.poster]).filter(value => typeof value === "string" && value.trim());
     const fulltextImages: string[] = [];
@@ -102,7 +108,7 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     ) SELECT id, parent_id FROM ancestors WHERE parent_id IS NULL` : [];
     const rootId = ancestors[0]?.id;
     const currentScope = record.analysis?.shared ? editorialEvidenceScope(record.analysis.shared).scope : undefined;
-    const route = score.route === 'verified_breakout' ? score.route : retained && previous!.decision.route ? previous!.decision.route : score.route ?? 'pending';
+    const route = score.route === 'verified_breakout' ? score.route : (retained || waitingReference) && previous!.decision.route ? previous!.decision.route : score.route ?? 'pending';
     const admittedAt = retained ? previous!.decision.admittedAt ?? record.collectedAt.toISOString() : now.toISOString();
     let quotaPending = false;
     if (allowed && route === 'market_reference' && !retained) {
@@ -124,9 +130,10 @@ export async function reconcilePublicNews(now = new Date(), articleIds?:string[]
     const selected=allowed && (score.eligibleSelected===true || retained && (previous!.decision.selected || !!previous!.selected_ready_at));
     const publicLabel = currentScope==='non_ai_film'||currentScope==='adjacent_industry'||route==='market_reference'?'行业参考':currentScope==='general_ai'?'出圈':selected?'精选':null;
     const decision: PublicNewsDecision = { allowed, title, summary: publicSummary.text??(retained?previous!.decision.summary:null),
-      reason: allowed ? publicLabel : quotaPending ? '行业参考等待每日额度' : '未通过公开资格', route, ...(allowed ? {admittedAt} : {}),
+      reason: allowed ? publicLabel : quotaPending ? '行业参考等待每日额度' : '未通过公开资格', route, qualificationKey,
+      ...((allowed || quotaPending) ? {qualifiedAt:(retained || waitingReference) && previous!.decision.qualifiedAt || now.toISOString()} : {}), ...(allowed ? {admittedAt} : {}),
       category: policy.columnMapping[record.analysis?.columnId ?? ""] ?? null,
-      score: retained?previous!.decision.score:score.public.total, selected, images: normalize(images), fulltextImages: normalize(fulltextImages),
+      score: retained || waitingReference?previous!.decision.score:score.public.total, selected, images: normalize(images), fulltextImages: normalize(fulltextImages),
       event: allowed && record.eventId && rootId ? { id: record.eventId, rootId, title,
         occurredAt: record.analysis?.shared?.event?.time?.at ?? null } : null };
     await db`INSERT INTO studio_public_news (article_id, source_key, decision, policy_version, semantics_key, updated_at)

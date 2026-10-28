@@ -30,3 +30,11 @@ test("comment citations are never reanchored to the article body", () => {
  assert.equal(result.insights.impacts[0]!.evidenceQuotes[0],"GPT‑6 已发布");
  assert.equal(output.insights.impacts[0]!.evidenceQuotes[0],"GPT-6 已发布");
 });
+test('唯一且有界的省略引句恢复为连续原文，不接受错序/多解或大跨度拼接',()=>{
+ const body='Benetone Films and Fearfolks are producing the feature, which Songsak Mongkolthong, a Thai director, directs from a screenplay by Patrick Graham.';
+ const short='Benetone Films and Fearfolks are producing the feature, which Songsak Mongkolthong... directs from a screenplay by Patrick Graham';
+ assert.equal(groundBodyQuoteTypography({quotes:[short]},body).quotes[0],body.slice(0,-1));
+ assert.equal(groundBodyQuoteTypography({quotes:[short]},body+' '+body).quotes[0],short);
+ const gap='Benetone Films and Fearfolks are producing the feature, which Songsak Mongkolthong'+(' x'.repeat(400))+' directs from a screenplay by Patrick Graham';
+ assert.equal(groundBodyQuoteTypography({quotes:[short]},gap).quotes[0],short);
+});

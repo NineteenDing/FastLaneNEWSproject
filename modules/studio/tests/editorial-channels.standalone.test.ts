@@ -46,3 +46,11 @@ test('真实出圈允许普通维度未知，公开与内部材料候选一致',
  assert.equal(score.internal.eligible,true);assert.equal(score.eligibleSelected,true);assert.equal(score.route,'verified_breakout');
  assert.equal(freezeSharedTopicSignals([{material,analysis}],asOf)!.candidates[0]!.path,'breakout');
 });
+
+import {retainedReferenceCandidate} from '../backend/reference-quota.ts';
+test('等待每日额度的资格固定，热度时间变旧不丢失；原文、语义或规则变化需重新核验',()=>{
+ const previous={route:'market_reference',qualificationKey:'same-facts-policy',qualifiedAt:'2026-10-28T00:00:00Z'};
+ assert.equal(retainedReferenceCandidate(previous,'same-facts-policy'),true);
+ assert.equal(retainedReferenceCandidate(previous,'changed-facts-policy'),false);
+ assert.equal(retainedReferenceCandidate({...previous,route:'excluded'},'same-facts-policy'),false);
+});
