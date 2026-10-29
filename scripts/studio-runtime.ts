@@ -150,7 +150,7 @@ export async function startLocalWindows(configurationFile: string) {
   const interrupt = () => { void controlLocal("stop", { waitForGroupExit: false }).catch(() => controller.abort(new Error("LOCAL_START_FAILED"))); };
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, interrupt);
   try {
-    const deadline = Date.now() + 20_000;
+    const deadline = Date.now() + 60_000;
     let ready = false;
     while (!ended && Date.now() < deadline) {
       try {
@@ -303,7 +303,7 @@ export async function startLocal(config: Record<string, string | undefined>, opt
         if (!stopping) { process.exitCode = 1; void stop().finally(() => server.close()); }
       });
     }
-    const deadline = Date.now() + 15_000;
+    const deadline = Date.now() + 45_000;
     while (Date.now() < deadline && !stopping) {
       try {
         const api = await fetch(`${env.API_BASE_URL}/api/health`, { signal: AbortSignal.timeout(1000) });
