@@ -24,7 +24,7 @@ export function createCollectionAdmission(options: {
     catch (error) { for (const stop of stops) stop(); owned = false; throw error; }
     let stopped = false;
     return {
-      canStart: () => !stopped && enabled() && host.status().state === "ready"
+      canStart: () => !stopped && process.env.STUDIO_WORKER_BOOTSTRAPPING !== "true" && enabled() && host.status().state === "ready"
         && (options.heavy ? disk.status().heavyTaskAllowed : disk.status().ingestionAllowed) && database.status().ingestionAllowed,
       stop() {
         if (stopped) return;

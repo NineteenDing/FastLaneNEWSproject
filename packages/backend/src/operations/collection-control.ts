@@ -27,7 +27,7 @@ export function collectionControlState(): CollectionControl {
     return { version: null, requestedEnabled: null, runtimeAllowed, enabled: false, state: "unavailable", updatedAt: null };
   }
 }
-export const collectionEnabled = () => collectionControlState().enabled;
+export const collectionEnabled = () => process.env.STUDIO_WORKER_BOOTSTRAPPING !== "true" && collectionControlState().enabled;
 
 /** Reuse the budget ledger's local lock + fsync + atomic publication pattern; never alter startup permission. */
 export function saveCollectionControl(input: { version: number; enabled: boolean }, actor: string): CollectionControl {

@@ -14,6 +14,7 @@ import { registerSchedules } from "./schedules.ts";
 import { ensureContentTargets } from "@aihot/backend/notify/deliver";
 import { startHeartbeat } from "@aihot/backend/operations/heartbeat";
 
+process.env.STUDIO_WORKER_BOOTSTRAPPING = "true";
 installModules(SERVER_MODULES);
 assertProductionSecrets([["auth", "IMG_PROXY_SIGN_SECRET"]]);
 
@@ -28,6 +29,7 @@ if (editorialPipelineEnabled()) {
 if (process.env.COLLECT_ENABLED === "true") await registerSourceJobs(boss);
 await workModuleQueues(boss);
 await registerSchedules(boss);
+delete process.env.STUDIO_WORKER_BOOTSTRAPPING;
 const heartbeat = startHeartbeat("worker");
 console.log(JSON.stringify({ level: "info", msg: "worker started", pid: process.pid }));
 
