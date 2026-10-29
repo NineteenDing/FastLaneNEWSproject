@@ -33,7 +33,7 @@ export function douyinFixture(transport: MockAgent, options: { cursor?: string; 
 }
 
 /** Designated detail only; no profile/list/comments can accidentally satisfy this fixture. */
-export function douyinVideoDetailFixture(transport: MockAgent, options: { owner?: string; id?: string; url?: string } = {}) {
+export function douyinVideoDetailFixture(transport: MockAgent, options: { owner?: string; id?: string; url?: string; urls?:string[] } = {}) {
   const api = transport.get("https://www.douyin.com");
   api.intercept({ path: "/", headers: { cookie: douyinCookie } }).reply(200, "<html><body>platform origin</body></html>", { headers: { "content-type": "text/html" } });
   api.intercept({ path: value => {
@@ -44,5 +44,5 @@ export function douyinVideoDetailFixture(transport: MockAgent, options: { owner?
       && (url.searchParams.get("a_bogus")?.length ?? 0) > 100;
   }, headers: headers => headers.cookie === douyinCookie && headers.origin === undefined && /Chrome\/\d/.test(String(headers["user-agent"])) })
     .reply(200, { status_code: 0, aweme_detail: { aweme_id: options.id ?? "7600000000000000001", author: { sec_uid: options.owner ?? "MS4wLjABAAAAfilm_fixture" },
-      desc: "先固定角色，再做不同镜头。", video: { play_addr_h264: { url_list: [options.url ?? "https://v3-dy-o.zjcdn.com/fixture-video.mp4"] } } } });
+      desc: "先固定角色，再做不同镜头。", video: { play_addr_h264: { url_list: options.urls ?? [options.url ?? "https://v3-dy-o.zjcdn.com/fixture-video.mp4"] } } } });
 }

@@ -668,9 +668,13 @@ async def collect_douyin(job):
             "reply_comment", "reply_comment_total", fetch_children)
         stats = item.get("statistics") or {}
         kind = "image_text" if item.get("images") else "video"
+        media_urls = douyin_video_urls(item) if kind == "video" else []
+        # The platform play endpoint redirects across origins. Prefer the direct CDN
+        # candidates the same response supplies, without weakening the HTTP guard.
+        media_urls.sort(key=lambda url: urlsplit(url).hostname in ("douyin.com", "www.douyin.com"))
         posts.append({"externalId": identity, "url": "https://www.douyin.com/video/" + identity,
                       "kind": kind, "title": item.get("desc", "")[:80] or "抖音作品", "text": item.get("desc") or "", "publishedAt": timestamp(item.get("create_time")), "transcript": None,
-                      "media": {"videoUrls": douyin_video_urls(item)[:3] if kind == "video" else []},
+                      "media": {"videoUrls": media_urls[:3]},
                       "metrics": {"views": number(stats.get("play_count")), "comments": number(stats.get("comment_count")), "likes": number(stats.get("digg_count")), "reposts": number(stats.get("share_count")), "favorites": number(stats.get("collect_count"))},
                       "comments": samples, "commentCoverage": comment_coverage})
     complete = more in (0, "0")

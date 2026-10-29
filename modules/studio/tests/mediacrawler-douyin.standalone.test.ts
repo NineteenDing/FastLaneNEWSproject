@@ -4,7 +4,7 @@ import { after, test } from "node:test";
 import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { config } from "@aihot/backend/config";
 import { collectMediaCreator, MediaCrawlerFailure } from "../backend/mediacrawler.ts";
-import { douyinFixture, douyinCookie } from "./douyin-fixture.ts";
+import { douyinFixture, douyinCookie, douyinVideoDetailFixture } from "./douyin-fixture.ts";
 
 const previous = getGlobalDispatcher(), transport = new MockAgent();
 transport.disableNetConnect(); setGlobalDispatcher(transport); config.allowPrivateNetworkFetch = true;
@@ -72,5 +72,14 @@ test('抖音实际19条单页含旧置顶时，首批取发布时间最新五条
   const result=await collectMediaCreator({platform:'douyin',locator:'MS4wLjABAAAAfilm_fixture',cookie:douyinCookie,metadataOnly:true,metadataLimit:5});
   assert.deepEqual(result.posts.map(p=>p.externalId),['7600000000000000026','7600000000000000025','7600000000000000024','7600000000000000023','7600000000000000022']);
   assert.ok(result.posts.every(p=>p.comments.length===0));
+  transport.assertNoPendingInterceptors();
+});
+
+test('抖音指定作品保留媒体候选，优先直连CDN而非需跨域跳转的平台播放地址',async()=>{
+  const redirect='https://www.douyin.com/aweme/v1/play/?video_id=fixture';
+  const direct='https://v11-weba.douyinvod.com/fixture.mp4',backup='https://v26-web.douyinvod.com/fixture.mp4';
+  douyinVideoDetailFixture(transport,{urls:[direct,backup,redirect]});
+  const result=await collectMediaCreator({platform:'douyin',locator:'MS4wLjABAAAAfilm_fixture',cookie:douyinCookie,videoId:'7600000000000000001'});
+  assert.deepEqual(result.posts[0].media?.videoUrls,[backup,direct,redirect]);
   transport.assertNoPendingInterceptors();
 });
