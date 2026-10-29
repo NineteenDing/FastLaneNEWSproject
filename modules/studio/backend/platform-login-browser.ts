@@ -76,7 +76,15 @@ export async function openPlatformLogin(platform: CreatorPlatform, signal: Abort
         const changed = cookies.some(c => markers[platform].includes(c.name) && !!c.value && baseline.get(c.name) !== c.value && (platform !== "douyin" || c.name !== "LOGIN_STATUS" || c.value === "1"));
         // XHS may issue web_session anonymously: require its logged-in profile affordance too.
         if (!changed || platform === "xhs" && !await page.locator('a[href*="/user/profile/"]').filter({ hasText: "我" }).first().isVisible()) return "";
-        return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+        const values=cookies.map(c => `${c.name}=${c.value}`);
+        // Douyin's SDK can keep its request token in localStorage rather than a Cookie.
+        // Preserve it with the same encrypted session; it is not itself a login marker.
+        if(platform==='douyin' && !cookies.some(c=>c.name==='msToken' && c.value)
+          && new URL(page.url()).origin==='https://www.douyin.com') {
+          const token=await page.evaluate(()=>localStorage.getItem('xmst') || localStorage.getItem('msToken') || '');
+          if(token.length<=4096 && /^[A-Za-z0-9._~+/=-]+$/.test(token)) values.push(`msToken=${token}`);
+        }
+        return values.join("; ");
       },
       async action(action) {
         signal.throwIfAborted();

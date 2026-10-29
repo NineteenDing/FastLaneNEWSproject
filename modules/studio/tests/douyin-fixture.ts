@@ -1,14 +1,16 @@
 import type { MockAgent } from "undici";
 
 export const douyinCookie = "sessionid=private-douyin-session; msToken=private-douyin-ms-token; UIFID=private-douyin-uifid; s_v_web_id=private-douyin-fp";
-export function douyinFixture(transport: MockAgent, options: { cursor?: string; complete?: boolean; status?: number; empty?: boolean; media?: boolean; replies?: boolean } = {}) {
+export function douyinFixture(transport: MockAgent, options: { cursor?: string; complete?: boolean; status?: number; empty?: boolean; media?: boolean; replies?: boolean; cookie?:string } = {}) {
+  const cookie=options.cookie ?? douyinCookie;
+  const token=cookie.split(';').map(v=>v.trim()).find(v=>v.startsWith('msToken='))?.slice(8) ?? '';
   const api = transport.get("https://www.douyin.com");
-  api.intercept({ path: "/", headers: { cookie: douyinCookie } }).reply(200, "<html><body>platform origin</body></html>", { headers: { "content-type": "text/html" } });
+  api.intercept({ path: "/", headers: { cookie } }).reply(200, "<html><body>platform origin</body></html>", { headers: { "content-type": "text/html" } });
   const signed = (value: string, pathname: string) => {
     const url = new URL(value, "https://www.douyin.com");
-    return url.pathname === pathname && (url.searchParams.get("a_bogus")?.length ?? 0) > 100 && url.searchParams.get("msToken") === "private-douyin-ms-token";
+    return url.pathname === pathname && (url.searchParams.get("a_bogus")?.length ?? 0) > 100 && url.searchParams.get("msToken") === token;
   };
-  const headers = { cookie: douyinCookie, "x-tt-argus": "1", uifid: "private-douyin-uifid" };
+  const headers = { cookie, "x-tt-argus": "1", uifid: "private-douyin-uifid" };
   api.intercept({ path: value => signed(value, "/aweme/v1/web/user/profile/other/") && new URL(value, "https://www.douyin.com").searchParams.get("sec_user_id") === "MS4wLjABAAAAfilm_fixture", headers })
     .reply(options.status ?? 200, { status_code: 0, user: { sec_uid: "MS4wLjABAAAAfilm_fixture", nickname: "AI镜头实验", signature: "记录漫剧制作过程", follower_count: 8900, aweme_count: 31, avatar_thumb: { url_list: ["https://p3.douyinpic.com/avatar.jpg"] } } });
   if (options.status && options.status !== 200) return;

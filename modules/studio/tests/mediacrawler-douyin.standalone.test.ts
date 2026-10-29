@@ -58,3 +58,11 @@ test("抖音成功响应的末页空作品不会被当成平台故障", async ()
   assert.equal(result.coverage.complete, true); assert.equal(result.coverage.nextPage, null);
   transport.assertNoPendingInterceptors();
 });
+
+test('有登录会话但缺SDK令牌时实际请求平台，不在本地误报账号失效',async()=>{
+  const cookie=douyinCookie.split(';').filter(v=>!v.trim().startsWith('msToken=')).join(';');
+  douyinFixture(transport,{cookie,empty:true});
+  const result=await collectMediaCreator({platform:'douyin',locator:'MS4wLjABAAAAfilm_fixture',cookie,metadataOnly:true});
+  assert.equal(result.profile.name,'AI镜头实验');
+  transport.assertNoPendingInterceptors();
+});

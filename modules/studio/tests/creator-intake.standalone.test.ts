@@ -7,3 +7,10 @@ assert.equal(selectCreatorIntake(posts,'2026-10-28T00:00:00Z',now).length,0);
 assert.equal(selectCreatorIntake(posts,'2026-10-20T00:00:00Z',now).length,8);
 assert.equal(creatorMediaRelevant(posts[0]),false);assert.equal(creatorMediaRelevant({title:'ComfyUI视频工作流',text:''}),true);assert.equal(creatorMediaRelevant({title:'GPT新模型上线',text:''}),true);
 });
+
+test('AI场景一致性与创作Skill进入采集，无关技能及高热日常仍排除',()=>{
+ for(const title of ['一招教你精准保持AI场景一致性','AI主体一致性和多视角控制','把AI提示词做成skill，复用创作流程','Agent Skills让智能体复用你的流程'])
+  assert.equal(creatorMediaRelevant({title,text:''}),true,title);
+ for(const title of ['足球skills集锦','摄影师日常vlog，今天去广西摸鱼','场景一致性：家居装修要点'])
+  assert.equal(creatorMediaRelevant({title,text:''}),false,title);
+});

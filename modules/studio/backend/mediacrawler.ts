@@ -87,7 +87,9 @@ export async function collectMediaCreator(input: { platform: string; locator: st
   else if (["zhihu", "douyin", "kuaishou"].includes(job.platform)) z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/).parse(job.locator);
   else z.string().regex(/^\d{1,20}$/).parse(job.locator);
   const douyinToken = job.cookie.split(";").map(part => part.trim()).find(part => part.startsWith("msToken="))?.slice(8) ?? "";
-  if (job.platform === "douyin" && !douyinToken) throw new MediaCrawlerFailure("login_required");
+  const douyinHasSession=job.cookie.split(';').some(part=>/^(sessionid|sessionid_ss)=\S+$/.test(part.trim()));
+  // msToken is SDK request state, not proof that a valid login session has expired.
+  if (job.platform === "douyin" && !douyinToken && !douyinHasSession) throw new MediaCrawlerFailure("login_required");
   const python = path.resolve(root, process.env.STUDIO_MEDIACRAWLER_PYTHON || "runtime/mediacrawler-env/Scripts/python.exe");
   const source = path.resolve(root, process.env.STUDIO_MEDIACRAWLER_SOURCE || "runtime/mediacrawler-source");
   try { await access(python); await access(path.join(source, "media_platform/bilibili/client.py")); }
