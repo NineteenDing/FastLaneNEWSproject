@@ -70,10 +70,10 @@ export class MediaCrawlerFailure extends Error {
 
 /** Fixed upstream clients, real Python process, requests exclusively through guardedFetch.
  * Unconnected platform adapters remain explicit unfinished work, never successful empty collections. */
-export async function collectMediaCreator(input: { platform: string; locator: string; page?: number; cookie?: string; cursor?: string; context?: Record<string, string>; videoId?: string; discover?: boolean; searchTerm?: string; metadataOnly?:boolean; metadataLimit?:number }, options: { signal?: AbortSignal } = {}): Promise<MediaCreatorResult> {
+export async function collectMediaCreator(input: { platform: string; locator: string; page?: number; cookie?: string; cursor?: string; context?: Record<string, string>; videoId?: string; discover?: boolean; searchTerm?: string; metadataOnly?:boolean; metadataLimit?:number; onlyIds?:string[] }, options: { signal?: AbortSignal } = {}): Promise<MediaCreatorResult> {
   const job = z.object({ platform: z.enum(mediaCreatorPlatforms), locator: z.string().max(200), page: z.number().int().min(1).max(10000).default(1), cursor: z.string().max(2000).default(""),
     context: z.object({ xsec_token: z.string().max(2000).optional(), xsec_source: z.string().max(200).optional(), questionId: z.string().regex(/^\d{1,20}$/).optional() }).strict().default({}),
-    cookie: z.string().max(16000).regex(/^[^\r\n]*$/).default(""), videoId: z.string().max(100).optional(), metadataOnly:z.boolean().default(false),metadataLimit:z.number().int().min(1).max(30).default(5), discover: z.boolean().default(false), searchTerm: z.string().trim().min(1).max(500).optional() }).strict()
+    cookie: z.string().max(16000).regex(/^[^\r\n]*$/).default(""), videoId: z.string().max(100).optional(), onlyIds:z.array(z.string().min(1).max(200)).min(1).max(30).optional(),metadataOnly:z.boolean().default(false),metadataLimit:z.number().int().min(1).max(30).default(5), discover: z.boolean().default(false), searchTerm: z.string().trim().min(1).max(500).optional() }).strict()
     .refine(value => !value.searchTerm || ["weibo", "douyin", "kuaishou", "zhihu", "tieba"].includes(value.platform) && value.discover && !value.videoId, "代表作品搜索暂未接入此平台")
     .refine(value => !value.discover || ["bilibili", "weibo", "xhs", "douyin", "kuaishou", "zhihu", "tieba"].includes(value.platform) && (!!value.videoId || !!value.searchTerm), "单作品发现暂未接入此平台")
     .refine(value => value.videoId === undefined || (value.platform === "bilibili" ? /^BV[A-Za-z0-9]{6,20}$/.test(value.videoId)
@@ -109,7 +109,7 @@ export async function collectMediaCreator(input: { platform: string; locator: st
       expression: "signKind === 'sign_reply' ? sign_reply(params, agent) : sign_datail(params, agent)", globals: { params: "", agent: "", signKind: "sign_datail" } });
     douyinSign = (params, agent, name) => invoke({ params, agent, signKind: name });
   }
-  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(job.metadataOnly ? 240_000 : 90_000)]) : AbortSignal.timeout(job.metadataOnly ? 240_000 : 90_000);
+  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(job.metadataOnly || job.onlyIds ? 240_000 : 90_000)]) : AbortSignal.timeout(job.metadataOnly || job.onlyIds ? 240_000 : 90_000);
   signal.throwIfAborted();
   if (active) throw new Error("已有博主采集正在运行，请稍后重试");
   active = true;
@@ -120,6 +120,7 @@ export async function collectMediaCreator(input: { platform: string; locator: st
       const child = spawn(python, ["-I", "-B", "-u", "-X", "utf8", path.join(import.meta.dirname, "mediacrawler-child.py"), source],
         { cwd: root, env: { ...localProcessEnvironment(), PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" }, stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
       let result: MediaCreatorResult | undefined, error: Error | undefined;
+      const protocolBudget=job.onlyIds ? 120 : 80;
       let buffer = "", bytes = 0, pending = false, requests = 0;
       const finish = (cause: Error) => { error ??= cause; controller.abort(cause); child.kill(); };
       const subscription = addAbortListener(childSignal, () => finish(new Error("博主采集已取消或超时")));
@@ -139,12 +140,12 @@ export async function collectMediaCreator(input: { platform: string; locator: st
             job.videoId = selected.externalId;
             if (!child.killed) child.stdin.write(JSON.stringify({ ok: true }) + "\n");
           } else if (tag === "douyin-sign") {
-            if (!douyinSign || pending || result || ++requests > 80) throw new Error("抖音签名协议无效");
+            if (!douyinSign || pending || result || ++requests > protocolBudget) throw new Error("抖音签名协议无效");
             const message = z.object({ type: z.literal("douyin-sign"), name: z.enum(["sign_datail", "sign_reply"]).default("sign_datail"), params: z.string().max(16000), agent: z.string().max(1000) }).strict().parse(raw);
             const signed = z.string().min(10).max(8000).parse(douyinSign(message.params, message.agent, message.name));
             if (!child.killed) child.stdin.write(JSON.stringify(signed) + "\n");
           } else if (tag === "browser") {
-            if (!page || !["tieba", "douyin", "kuaishou"].includes(job.platform) || pending || result || ++requests > 80) throw new Error("采集页面协议无效");
+            if (!page || !["tieba", "douyin", "kuaishou"].includes(job.platform) || pending || result || ++requests > protocolBudget) throw new Error("采集页面协议无效");
             const message = z.discriminatedUnion("action", [
               z.object({ type: z.literal("browser"), action: z.literal("goto"), url: z.literal("https://tieba.baidu.com") }).strict(),
               z.object({ type: z.literal("browser"), action: z.literal("state"), field: z.enum(["storage", "userAgent"]) }).strict(),
@@ -207,7 +208,7 @@ export async function collectMediaCreator(input: { platform: string; locator: st
               if (!child.killed) child.stdin.write(reply + "\n");
             } finally { pending = false; }
           } else if (tag === "zhihu-sign") {
-            if (!sign || pending || result || ++requests > 80) throw new Error("采集签名协议无效");
+            if (!sign || pending || result || ++requests > protocolBudget) throw new Error("采集签名协议无效");
             const message = z.object({ type: z.literal("zhihu-sign"), uri: z.string().max(8000) }).strict().parse(raw);
             const target = new URL(message.uri, "https://www.zhihu.com");
             if (!message.uri.startsWith("/") || target.origin !== "https://www.zhihu.com" || !zhihuPath(target.pathname, job.locator, job.videoId, job.context.questionId, job.searchTerm)
@@ -215,7 +216,7 @@ export async function collectMediaCreator(input: { platform: string; locator: st
             const signed = z.object({ "x-zst-81": z.string().max(4000), "x-zse-96": z.string().max(4000) }).strict().parse(sign(message.uri));
             if (!child.killed) child.stdin.write(JSON.stringify(signed) + "\n");
           } else if (tag === "fetch") {
-            if (pending || result || ++requests > 80) throw new Error("采集请求协议无效");
+            if (pending || result || ++requests > protocolBudget) throw new Error("采集请求协议无效");
             const request = z.object({ type: z.literal("fetch"), url: z.url().max(8000), method: z.enum(["GET", "POST"]),
               headers: z.record(z.string(), z.string()), body: z.string().max(1400000) }).strict().parse(raw);
             const url = new URL(request.url);

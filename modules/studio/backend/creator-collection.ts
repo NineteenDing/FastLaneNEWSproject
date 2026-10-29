@@ -22,7 +22,7 @@ class PlatformCooling extends Conflict {}
 export const creatorQueue = defineQueue<{ creatorId: string }>({
   name: "studio.creator.collect",
   executionGroup: "studio-creator-media",
-  options: { policy: "short", retryLimit: 0, expireInSeconds: 300 },
+  options: { policy: "short", retryLimit: 0, expireInSeconds: 600 },
   worker: { localConcurrency: 1, batchSize: 1, pollingIntervalSeconds: 2, groupConcurrency: 1 },
   admission: createCollectionAdmission({ heavy: true, enabled: creatorsCollecting }),
   async run(jobs) {
@@ -58,7 +58,7 @@ async function collect(id: string) {
     if(limited) return null;
     const [lease] = await tx<{ next_page: number; next_cursor: string; coverage: {monitorSince?:string} }[]>`INSERT INTO studio_creator_collection (creator_id, run_token, state) VALUES (${id}, ${token}, 'running')
       ON CONFLICT (creator_id) DO UPDATE SET run_token = EXCLUDED.run_token, state = 'running', started_at = now(), completed_at = NULL, error_code = NULL
-      WHERE studio_creator_collection.state <> 'running' OR studio_creator_collection.started_at < now() - interval '5 minutes'
+      WHERE studio_creator_collection.state <> 'running' OR studio_creator_collection.started_at < now() - interval '10 minutes'
       RETURNING next_page, next_cursor, coverage`;
     return lease ? { ...account, page: lease.next_page, cursor: lease.next_cursor, coverage:lease.coverage } : null;
   });
@@ -84,6 +84,12 @@ async function collect(id: string) {
     const result = await collectMediaCreator({ platform: claim.platform, locator, page: 1,
       cursor: "", metadataOnly: true, metadataLimit: claim.coverage?.monitorSince ? 30 : 5, cookie: session.cookie, context });
     if (result.profile.externalId !== locator) throw new Error("平台返回了其他账号");
+    const observed = selectCreatorIntake(result.posts, claim.coverage?.monitorSince ?? null, new Date().toISOString());
+    const relevant=observed.filter(creatorMediaRelevant);
+    const detailed=relevant.length ? await collectMediaCreator({platform:claim.platform,locator,page:1,cursor:"",cookie:session.cookie,context,metadataLimit:claim.coverage?.monitorSince ? 30 : 5,onlyIds:relevant.map(p=>p.externalId)}) : null;
+    if(detailed && detailed.profile.externalId!==locator) throw new Error("平台返回了其他账号");
+    // Do not advance the watermark on partial enrichment: next low-frequency run can recover it.
+    if(detailed && relevant.some(p=>!detailed.posts.some(d=>d.externalId===p.externalId))) throw new Error("相关作品详情尚未完整取得");
     const avatar = await prepareCreatorAvatar(result.profile.avatar);
     return await sql.begin(async tx => {
       // Freeze and video+job publication must see either the entire collection commit or none of it.
@@ -108,9 +114,8 @@ async function collect(id: string) {
           FROM studio_image_references WHERE owner = ${`creator-avatar:${accountId}`} ON CONFLICT DO NOTHING`;
         await assets.setReferences(`creator-avatar:${accountId}`, [avatar], tx);
       }
-      const observed = selectCreatorIntake(result.posts, claim.coverage?.monitorSince ?? null, new Date().toISOString());
-      for (const post of observed) {
-        if (creatorMediaRelevant(post)) await saveCreatorContent(tx, accountId, claim.platform, post);
+      for (const post of detailed?.posts ?? []) {
+        if (relevant.some(p=>p.externalId===post.externalId) && creatorMediaRelevant(post)) await saveCreatorContent(tx, accountId, claim.platform, post);
       }
       const monitorSince = observed[0]?.publishedAt ?? claim.coverage?.monitorSince ?? null;
       const boundedCoverage = {...result.coverage, page:1, nextPage:null, nextCursor:"", complete:true, scope:"latest-five-monitor", monitorSince, observed:observed.length, accepted:observed.filter(creatorMediaRelevant).length};
@@ -171,7 +176,7 @@ export async function scheduleCreators() {
     WHERE a.following AND a.enabled AND NOT a.archived AND a.platform = ANY(${[...mediaCreatorPlatforms]}::text[])
       AND NOT EXISTS (SELECT 1 FROM studio_creator_collection limited JOIN studio_creator_accounts other ON other.id=limited.creator_id WHERE other.platform=a.platform AND limited.state='rate_limited' AND limited.completed_at>now()-interval '6 hours')
       AND (c.creator_id IS NULL OR c.next_check_at <= now() OR (${renewed})) AND (c.state IS DISTINCT FROM 'login_required' OR (${renewed}))
-      AND (c.state IS DISTINCT FROM 'running' OR c.started_at < now() - interval '5 minutes')
+      AND (c.state IS DISTINCT FROM 'running' OR c.started_at < now() - interval '10 minutes')
     ORDER BY c.next_check_at NULLS FIRST, a.id LIMIT 100`;
   let queued = 0;
   for (const account of accounts) {

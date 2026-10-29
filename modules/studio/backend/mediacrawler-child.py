@@ -307,6 +307,8 @@ async def collect_weibo(job):
         if card.get("card_type") != 9:
             continue
         item = card["mblog"]
+        if job.get("onlyIds") and str(item["id"]) not in job["onlyIds"]:
+            continue
         if str(item["user"]["id"]) != job["locator"]:
             raise PlatformFailure("platform_failed")
         if item.get("isLongText") and not job.get("videoId") and not job.get("metadataOnly"):
@@ -356,6 +358,8 @@ async def collect_xhs(job):
     posts = []
     for listed in (notes[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else notes):
         note_id = listed["note_id"]
+        if job.get("onlyIds") and str(note_id) not in job["onlyIds"]:
+            continue
         token = listed.get("xsec_token", "")
         source = listed.get("xsec_source", "pc_feed")
         item = await client.get_note_by_id(note_id, source, token)
@@ -454,6 +458,8 @@ async def collect_zhihu(job):
             if item.get("type") != kind or str(author.get("id")) != str(profile["id"]) or not isinstance(item.get("content"), str):
                 raise PlatformFailure("platform_failed")
             identity = str(item["id"])
+            if job.get("onlyIds") and kind + ":" + identity not in job["onlyIds"]:
+                continue
             if not identity.isascii() or not identity.isdecimal():
                 raise PlatformFailure("platform_failed")
             parent = None
@@ -535,6 +541,8 @@ async def collect_tieba(job):
     for identity in (identities[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else identities):
         if not identity.isascii() or not identity.isdecimal():
             raise PlatformFailure("platform_failed")
+        if job.get("onlyIds") and identity not in job["onlyIds"]:
+            continue
         detail = single_detail if single_detail else await client._get_pc_page_data(identity, page=1)
         note = extractor.extract_note_detail_from_api(detail)
         first = detail.get("first_floor") or {}
@@ -635,6 +643,8 @@ async def collect_douyin(job):
     posts = []
     for item in (items[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else items):
         identity = str(item["aweme_id"])
+        if job.get("onlyIds") and identity not in job["onlyIds"]:
+            continue
         if not identity.isascii() or not identity.isdecimal() or item.get("author", {}).get("sec_uid") != job["locator"]:
             raise PlatformFailure("platform_failed")
         comments = {"status_code": 0, "comments": []} if job.get("videoId") or job.get("metadataOnly") else await client.get_aweme_comments(identity)
@@ -711,6 +721,8 @@ async def collect_kuaishou(job):
             raise PlatformFailure("platform_failed")
         item = video["photo"]
         identity = str(item["id"])
+        if job.get("onlyIds") and identity not in job["onlyIds"]:
+            continue
         comments = {"rootCommentsV2": []} if job.get("videoId") or job.get("metadataOnly") else await client.get_video_comments(identity)
         rows = comments["rootCommentsV2"]
         if not isinstance(rows, list):
@@ -799,9 +811,11 @@ async def collect(job):
                            "commentCoverage": {"complete": False, "repliesComplete": False, "limit": 20}}],
                 "coverage": {"page": 1, "nextPage": None, "complete": True}}
     profile = await client.get_creator_info(int(job["locator"]))
-    listing = await client.get_creator_videos(job["locator"], job["page"], ps=job.get("metadataLimit", 5) if job.get("metadataOnly") else 30, order_mode="pubdate")
+    listing = await client.get_creator_videos(job["locator"], job["page"], ps=job.get("metadataLimit", 5) if job.get("metadataOnly") or job.get("onlyIds") else 30, order_mode="pubdate")
     posts = []
     for video in (listing["list"]["vlist"][:job.get("metadataLimit", 5)] if job.get("metadataOnly") else listing["list"]["vlist"]):
+        if job.get("onlyIds") and video["bvid"] not in job["onlyIds"]:
+            continue
         comments = {} if job.get("metadataOnly") else await client.get_video_comments(str(video["aid"]))
         replies = comments.get("replies") or []
         async def fetch_children(root):
