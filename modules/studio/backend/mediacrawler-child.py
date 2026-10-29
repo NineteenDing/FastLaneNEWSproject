@@ -638,8 +638,15 @@ async def collect_douyin(job):
     items = listing["aweme_list"]
     if items is None and more in (0, "0"):
         items = []
-    if not isinstance(items, list) or len(items) > 18:
+    # A page may include pinned works in addition to its nominal count (observed: 19).
+    # Keep the response bounded, then select by publication time rather than pin order.
+    if not isinstance(items, list) or len(items) > 30:
         raise PlatformFailure("platform_failed")
+    if job.get("metadataOnly"):
+        now = datetime.now(timezone.utc).timestamp()
+        items = sorted((item for item in items if isinstance(item.get("create_time"), (int, float))
+                        and not isinstance(item.get("create_time"), bool) and 0 < item["create_time"] <= now),
+                       key=lambda item: item["create_time"], reverse=True)
     posts = []
     for item in (items[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else items):
         identity = str(item["aweme_id"])

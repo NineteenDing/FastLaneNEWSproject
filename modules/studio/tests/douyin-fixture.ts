@@ -1,7 +1,7 @@
 import type { MockAgent } from "undici";
 
 export const douyinCookie = "sessionid=private-douyin-session; msToken=private-douyin-ms-token; UIFID=private-douyin-uifid; s_v_web_id=private-douyin-fp";
-export function douyinFixture(transport: MockAgent, options: { cursor?: string; complete?: boolean; status?: number; empty?: boolean; media?: boolean; replies?: boolean; cookie?:string } = {}) {
+export function douyinFixture(transport: MockAgent, options: { cursor?: string; complete?: boolean; status?: number; empty?: boolean; media?: boolean; replies?: boolean; cookie?:string; extraPosts?:number; metadataOnly?:boolean } = {}) {
   const cookie=options.cookie ?? douyinCookie;
   const token=cookie.split(';').map(v=>v.trim()).find(v=>v.startsWith('msToken='))?.slice(8) ?? '';
   const api = transport.get("https://www.douyin.com");
@@ -19,8 +19,9 @@ export function douyinFixture(transport: MockAgent, options: { cursor?: string; 
       { aweme_id: "7600000000000000001", aweme_type: 0, author: { sec_uid: "MS4wLjABAAAAfilm_fixture" }, desc: "先固定角色，再做不同镜头。", create_time: 1792231200, statistics: { play_count: 12000, comment_count: 80, digg_count: 520, share_count: 32, collect_count: 110 },
         ...(options.media ? { video: { play_addr_h264: { url_list: ["https://v3-dy-o.zjcdn.com/fixture-video.mp4"] } } } : {}) },
       { aweme_id: "7600000000000000002", aweme_type: 68, author: { sec_uid: "MS4wLjABAAAAfilm_fixture" }, desc: "图文展示分镜参考和检查点。", images: [{ uri: "source-frame" }], create_time: 1792231500, statistics: { comment_count: 2, digg_count: 61, collect_count: 27 } },
+      ...Array.from({length:options.extraPosts??0},(_,i)=>({aweme_id:String(7600000000000000010n+BigInt(i)),author:{sec_uid:'MS4wLjABAAAAfilm_fixture'},desc:'AI场景一致性教程',create_time:1793145600+i,statistics:{digg_count:100+i}})),
     ] });
-  if (options.empty) return;
+  if (options.empty || options.metadataOnly) return;
   for (const [identity, comment, more] of [["7600000000000000001", "换景别以后角色会变吗？", 1], ["7600000000000000002", "检查点能做成清单吗？", 0]] as const) {
     api.intercept({ path: value => signed(value, "/aweme/v1/web/comment/list/") && new URL(value, "https://www.douyin.com").searchParams.get("aweme_id") === identity, headers })
       .reply(200, { status_code: 0, has_more: more, cursor: 20, comments: [{ cid: "comment-" + identity, text: comment, digg_count: 8, create_time: 1792231800,

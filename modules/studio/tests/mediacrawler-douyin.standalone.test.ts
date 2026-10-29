@@ -66,3 +66,11 @@ test('有登录会话但缺SDK令牌时实际请求平台，不在本地误报�
   assert.equal(result.profile.name,'AI镜头实验');
   transport.assertNoPendingInterceptors();
 });
+
+test('抖音实际19条单页含旧置顶时，首批取发布时间最新五条元数据，不请求评论',async()=>{
+  douyinFixture(transport,{extraPosts:17,metadataOnly:true});
+  const result=await collectMediaCreator({platform:'douyin',locator:'MS4wLjABAAAAfilm_fixture',cookie:douyinCookie,metadataOnly:true,metadataLimit:5});
+  assert.deepEqual(result.posts.map(p=>p.externalId),['7600000000000000026','7600000000000000025','7600000000000000024','7600000000000000023','7600000000000000022']);
+  assert.ok(result.posts.every(p=>p.comments.length===0));
+  transport.assertNoPendingInterceptors();
+});
