@@ -5,7 +5,8 @@ import { createHash } from "node:crypto";
 import { Conflict } from "@aihot/backend/audit";
 import { config } from "@aihot/backend/config";
 import { runWindowsProcessGroup } from "./windows-process-group.ts";
-import { parseMediaRecognition, parseMediaVisuals, type MediaRecognition, type MediaVisuals } from "./media-transcription.ts";
+import { parseMediaVisuals, type MediaRecognition, type MediaVisuals } from "./media-transcription.ts";
+import {parseLocalAsrRecognition} from './local-asr-result.ts';
 import { createStorageWorkspaces } from "./storage-workspaces.ts";
 
 async function fileDigest(file: string) {
@@ -38,7 +39,7 @@ export function createLocalAsr(options: { python: string; modelDirectory: string
       const sourceSha256 = await fileDigest(source), output = path.join(path.dirname(source), `${name}.json`), partial = path.join(path.dirname(source), `${name}.part`);
       const decode = (saved: Record<string, unknown>) => {
         if (saved.sourceSha256 !== sourceSha256 || saved.modelSha256 !== signature) throw new Conflict("已有转写检查点属于其他媒体或模型，已保留，请核对后重新处理");
-        return mode === "speech" ? parseMediaRecognition(saved.recognition) : parseMediaVisuals(saved.visuals);
+        return mode === "speech" ? parseLocalAsrRecognition(saved.recognition) : parseMediaVisuals(saved.visuals);
       };
       const completed = await savedOutput(output, maximumBytes);
       if (completed) return decode(completed);
