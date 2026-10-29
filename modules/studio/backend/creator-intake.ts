@@ -3,7 +3,7 @@ import {classifyTrendTitle} from "./rsshub-keywords.ts";
 export function creatorMediaRelevant(post: {title:string;text:string}) {
  const text=post.title+"\n"+post.text;
  const ai=/\bAI\b|AIGC|人工智能|生成式|智能体|\bagent\b/i.test(text);
- const creationTechnique=/场景一致性|主体一致性|风格一致性|多视角一致性|多视角控制|\bskills?\b/i.test(text);
+ const creationTechnique=/场景一致性|主体一致性|风格一致性|多视角一致性|多视角控制|\bskills?\b|\bAI\s*(?:入门|教程|教学|技巧|干货|创作)/i.test(text);
  return classifyTrendTitle(text).relevant || /ChatGPT|GPT|Claude|Gemini|DeepSeek|Qwen|Kimi|大模型|人工智能|通用AI/i.test(text)
   || ai && creationTechnique;
 }

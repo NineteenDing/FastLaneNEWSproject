@@ -9,7 +9,7 @@ assert.equal(creatorMediaRelevant(posts[0]),false);assert.equal(creatorMediaRele
 });
 
 test('AI场景一致性与创作Skill进入采集，无关技能及高热日常仍排除',()=>{
- for(const title of ['一招教你精准保持AI场景一致性','AI主体一致性和多视角控制','把AI提示词做成skill，复用创作流程','Agent Skills让智能体复用你的流程'])
+ for(const title of ['一招教你精准保持AI场景一致性','AI主体一致性和多视角控制','把AI提示词做成skill，复用创作流程','Agent Skills让智能体复用你的流程','做了上百期ai教程 今天我把小白AI入门讲透了','一个Skill搞定高燃AI打戏！','Ai动画才是新的突破口！','一招教你100%保持场景一致性 #ai技巧','3步教你做出电影级AI短片！'])
   assert.equal(creatorMediaRelevant({title,text:''}),true,title);
  for(const title of ['足球skills集锦','摄影师日常vlog，今天去广西摸鱼','场景一致性：家居装修要点'])
   assert.equal(creatorMediaRelevant({title,text:''}),false,title);
