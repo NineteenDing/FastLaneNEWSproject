@@ -35,7 +35,7 @@ export async function openPlatformLogin(platform: CreatorPlatform, signal: Abort
       args: ["--proxy-bypass-list=<-loopback>", "--disable-quic", "--dns-prefetch-disable", "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"] });
     const context = await browser.newContext({ viewport: { width: 900, height: 650 }, serviceWorkers: "block", acceptDownloads: false });
     await context.routeWebSocket("**/*", socket => socket.close());
-    let requests = 0, bytes = 0;
+    let requests = 0, bytes = 0, redirects = 0;
     await context.route("**/*", async route => {
       try {
         signal.throwIfAborted();
@@ -47,7 +47,18 @@ export async function openPlatformLogin(platform: CreatorPlatform, signal: Abort
         if (bytes > 64 * 1024 ** 2) throw new Error();
         const headers = Object.fromEntries(response.headers), cookies = response.headers.getSetCookie();
         if (cookies.length) headers["set-cookie"] = cookies.join("\n");
-        await route.fulfill({ status: response.status, headers, body });
+        if(req.isNavigationRequest() && response.status>=300 && response.status<400 && response.headers.get("location")) {
+          if([307,308].includes(response.status) && !["GET","HEAD"].includes(req.method())) throw new Error("保留请求体的登录跳转暂不支持，未将其改成GET");
+          const target=new URL(response.headers.get("location")!,req.url());
+          const testRedirect=trustedTestUrl && target.origin===new URL(trustedTestUrl).origin;
+          if(++redirects>10 || target.username || target.password || target.protocol!=="https:" && !(testRedirect && target.protocol==="http:")) throw new Error("登录跳转不安全或次数过多");
+          // Chromium can skip interception for a native HTTP redirect. Re-navigate from a
+          // tiny owned document, so every destination still crosses guardedFetch/TLS checks.
+          const escaped=target.href.replaceAll("&","&amp;").replaceAll('"',"&quot;").replaceAll("<","&lt;");
+          delete headers.location; delete headers["content-security-policy"]; delete headers["content-security-policy-report-only"];
+          headers["content-type"]="text/html; charset=utf-8"; headers["cache-control"]="no-store";
+          await route.fulfill({status:200,headers,body:`<!doctype html><meta http-equiv="refresh" content="0;url=${escaped}"><title>正在跳转平台登录页</title>`});
+        } else await route.fulfill({ status: response.status, headers, body });
       } catch { await route.abort().catch(() => {}); }
     });
     const page = await context.newPage();
