@@ -37,9 +37,11 @@ export function PlatformLogin({ session, name }: { session: PlatformSession; nam
     setError(""); const result = await action.run<Login>("POST", "/api/admin/studio/platform-logins", { platform: session.platform, version: session.version }, { revalidate: false });
     if (result) setLogin(result);
   }}>{action.busy && !login ? "正在打开…" : "登录平台"}</button>
+    {!login && action.error && <p role="alert">{action.error}</p>}
     {login && <Dialog title={`${name}登录`} onClose={() => { void close(); }} wide>
+      {action.error && <p role="alert">{action.error}</p>}
       {login.state === "waiting" ? <>
-        <p>直接点击下方平台页面操作，或用手机扫描页面中的二维码。登录窗口最多保留 4 分钟，成功后自动保存。</p>
+        <p>这是服务器上的独立浏览器。可在任意电脑打开本站，再用手机扫描下方二维码；无需远程桌面或复制Cookie。在其他网页单独登录不会同步到本站。直接点击下方平台页面操作，或用手机扫描页面中的二维码。登录窗口最多保留 4 分钟，成功后自动保存。</p>
         <div className="studio-login-screen" tabIndex={0} role="group" aria-label={`${name}登录画面`} onKeyDown={event => {
           if (["Enter", "Tab", "Backspace", "Escape", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight"].includes(event.key) && event.key !== "Escape") { event.preventDefault(); void operate({ type: "key", key: event.key }); }
         }}>

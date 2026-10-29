@@ -64,7 +64,7 @@ function SessionRow({ session }: { session: PlatformSession }) {
   const id = `platform-cookie-${session.platform}`;
   return <section className="studio-session-row" aria-label={`${names[session.platform]}登录设置`}>
     <div><h3>{names[session.platform]}</h3>
-      <p className="studio-caption">{session.state === "saved" ? "已保存 · 尚未验证" : session.state === "unreadable" ? "信息无法解密，请重新保存" : "尚未保存登录信息"}</p>
+      <p className="studio-caption">{session.loginRequired ? "登录已失效或平台要求验证，请重新登录" : session.state === "saved" ? "已保存 · 以实际采集结果验证" : session.state === "unreadable" ? "信息无法解密，请重新保存" : "尚未保存登录信息"}</p>
       <PlatformLogin session={session} name={names[session.platform]} />
       {!session.adapterAvailable && <p className="studio-caption">可先保存，平台采集仍在接入。</p>}
       {session.updatedAt && <p className="studio-caption">更新于 {new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Hong_Kong", dateStyle: "short", timeStyle: "short" }).format(new Date(session.updatedAt))}</p>}

@@ -70,10 +70,10 @@ export class MediaCrawlerFailure extends Error {
 
 /** Fixed upstream clients, real Python process, requests exclusively through guardedFetch.
  * Unconnected platform adapters remain explicit unfinished work, never successful empty collections. */
-export async function collectMediaCreator(input: { platform: string; locator: string; page?: number; cookie?: string; cursor?: string; context?: Record<string, string>; videoId?: string; discover?: boolean; searchTerm?: string }, options: { signal?: AbortSignal } = {}): Promise<MediaCreatorResult> {
+export async function collectMediaCreator(input: { platform: string; locator: string; page?: number; cookie?: string; cursor?: string; context?: Record<string, string>; videoId?: string; discover?: boolean; searchTerm?: string; metadataOnly?:boolean; metadataLimit?:number }, options: { signal?: AbortSignal } = {}): Promise<MediaCreatorResult> {
   const job = z.object({ platform: z.enum(mediaCreatorPlatforms), locator: z.string().max(200), page: z.number().int().min(1).max(10000).default(1), cursor: z.string().max(2000).default(""),
     context: z.object({ xsec_token: z.string().max(2000).optional(), xsec_source: z.string().max(200).optional(), questionId: z.string().regex(/^\d{1,20}$/).optional() }).strict().default({}),
-    cookie: z.string().max(16000).regex(/^[^\r\n]*$/).default(""), videoId: z.string().max(100).optional(), discover: z.boolean().default(false), searchTerm: z.string().trim().min(1).max(500).optional() }).strict()
+    cookie: z.string().max(16000).regex(/^[^\r\n]*$/).default(""), videoId: z.string().max(100).optional(), metadataOnly:z.boolean().default(false),metadataLimit:z.number().int().min(1).max(30).default(5), discover: z.boolean().default(false), searchTerm: z.string().trim().min(1).max(500).optional() }).strict()
     .refine(value => !value.searchTerm || ["weibo", "douyin", "kuaishou", "zhihu", "tieba"].includes(value.platform) && value.discover && !value.videoId, "代表作品搜索暂未接入此平台")
     .refine(value => !value.discover || ["bilibili", "weibo", "xhs", "douyin", "kuaishou", "zhihu", "tieba"].includes(value.platform) && (!!value.videoId || !!value.searchTerm), "单作品发现暂未接入此平台")
     .refine(value => value.videoId === undefined || (value.platform === "bilibili" ? /^BV[A-Za-z0-9]{6,20}$/.test(value.videoId)
@@ -109,7 +109,7 @@ export async function collectMediaCreator(input: { platform: string; locator: st
       expression: "signKind === 'sign_reply' ? sign_reply(params, agent) : sign_datail(params, agent)", globals: { params: "", agent: "", signKind: "sign_datail" } });
     douyinSign = (params, agent, name) => invoke({ params, agent, signKind: name });
   }
-  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000);
+  const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(job.metadataOnly ? 240_000 : 90_000)]) : AbortSignal.timeout(job.metadataOnly ? 240_000 : 90_000);
   signal.throwIfAborted();
   if (active) throw new Error("已有博主采集正在运行，请稍后重试");
   active = true;

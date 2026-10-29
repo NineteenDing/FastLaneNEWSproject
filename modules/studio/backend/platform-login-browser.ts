@@ -12,7 +12,7 @@ const urls: Record<CreatorPlatform, string> = { xhs: "https://www.xiaohongshu.co
   bilibili: "https://passport.bilibili.com/login", weibo: "https://passport.weibo.com/sso/signin?entry=miniblog", tieba: "https://tieba.baidu.com/", zhihu: "https://www.zhihu.com/signin" };
 const domains: Record<CreatorPlatform, string[]> = { xhs: ["xiaohongshu.com"], douyin: ["douyin.com"], kuaishou: ["kuaishou.com"], bilibili: ["bilibili.com"],
   weibo: ["weibo.com", "weibo.cn"], tieba: ["baidu.com"], zhihu: ["zhihu.com"] };
-const markers: Record<CreatorPlatform, string[]> = { xhs: ["web_session"], douyin: ["LOGIN_STATUS"], kuaishou: ["passToken"], bilibili: ["SESSDATA"], weibo: ["SUB", "SSOLoginState"], tieba: ["STOKEN", "PTOKEN", "BDUSS"], zhihu: ["z_c0"] };
+const markers: Record<CreatorPlatform, string[]> = { xhs: ["web_session"], douyin: ["LOGIN_STATUS", "sessionid", "sessionid_ss"], kuaishou: ["passToken"], bilibili: ["SESSDATA"], weibo: ["SUB", "SSOLoginState"], tieba: ["STOKEN", "PTOKEN", "BDUSS"], zhihu: ["z_c0"] };
 
 /** Remote login adapts the fixed MediaCrawler login markers; no existing browser profile is read.
  * Guarded HTTP and deny proxy are reused from collector-browser, permitting interactive page scripts. */
@@ -54,7 +54,7 @@ export async function openPlatformLogin(platform: CreatorPlatform, signal: Abort
     page.setDefaultTimeout(5000); page.setDefaultNavigationTimeout(15000);
     page.on("popup", popup => { void popup.close().catch(() => {}); });
     subscription = addAbortListener(signal, () => { void close().catch(() => {}); });
-    await page.goto(trustedTestUrl ?? urls[platform], { waitUntil: "domcontentloaded" });
+    await page.goto(trustedTestUrl ?? urls[platform], { waitUntil: "commit" });
     signal.throwIfAborted();
     const baseline = new Map((await context.cookies()).map(c => [c.name, c.value]));
     return {
@@ -62,7 +62,7 @@ export async function openPlatformLogin(platform: CreatorPlatform, signal: Abort
       async session() {
         signal.throwIfAborted();
         const cookies = (await context.cookies()).filter(c => domains[platform].some(domain => c.domain.replace(/^\./, "") === domain || c.domain.endsWith("." + domain)));
-        const changed = cookies.some(c => markers[platform].includes(c.name) && !!c.value && baseline.get(c.name) !== c.value && (platform !== "douyin" || c.value === "1"));
+        const changed = cookies.some(c => markers[platform].includes(c.name) && !!c.value && baseline.get(c.name) !== c.value && (platform !== "douyin" || c.name !== "LOGIN_STATUS" || c.value === "1"));
         // XHS may issue web_session anonymously: require its logged-in profile affordance too.
         if (!changed || platform === "xhs" && !await page.locator('a[href*="/user/profile/"]').filter({ hasText: "我" }).first().isVisible()) return "";
         return cookies.map(c => `${c.name}=${c.value}`).join("; ");
@@ -77,5 +77,5 @@ export async function openPlatformLogin(platform: CreatorPlatform, signal: Abort
       },
       close,
     };
-  } catch { let confirmed = false; try { await close(); confirmed = true; } catch {} throw new LoginBrowserOpenFailed(confirmed); }
+  } catch(error) { let confirmed = false; try { await close(); confirmed = true; } catch {} const message=error instanceof Error ? error.message : ""; throw new LoginBrowserOpenFailed(confirmed, /timeout/i.test(message) ? "timeout" : /net::|fetch|connect|socket/i.test(message) ? "network" : "component"); }
 }

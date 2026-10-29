@@ -23,6 +23,9 @@ export function CollectionTaskControl({ operations }: { operations: CollectionOp
     {!operations.runtimeAllowed && <p className="studio-notice">启动配置尚未允许采集。请在本项目配置中设置 COLLECT_ENABLED=true，并启用后台任务、重启服务；仅保存平台登录信息不会开始采集。</p>}
     {operations.state === "unavailable" && <p className="studio-notice">请检查运行数据目录的采集设置后刷新。当前不会覆盖无法读取的配置。</p>}
     <p className="studio-caption">恢复需要后台任务正在运行；已排队项目沿原队列继续，不代表所有平台已经连接成功。</p>
+    {operations.media && <div><h3>本地媒体处理</h3><p role="status">{operations.media.enabled ? "已启用" : "已暂停"} · 仅AI相关标题与简介通过预筛后，才下载和转写；首次最近五条，后续只检查新增。</p>
+      <button type="button" disabled={action.busy || !operations.media.runtimeAllowed || operations.media.state!=="ready"} onClick={()=>void action.run("PUT","/api/admin/studio/collection-operations",{target:"media",version:operations.media!.version,enabled:!operations.media!.enabled})}>{operations.media.enabled ? "暂停本地媒体处理" : "启用本地媒体处理"}</button>
+      {!operations.media.runtimeAllowed && <p>启动配置尚未允许媒体处理，需要运维将STUDIO_MEDIA_ENABLED=true并重启服务。</p>}</div>}
     <RuntimeComponentCheck />
   </section>;
 }

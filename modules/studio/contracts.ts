@@ -85,7 +85,7 @@ export interface FilterPreview {
 }
 export interface PlatformSession {
   platform: CreatorPlatform; state: "saved" | "missing" | "unreadable"; verified: false;
-  version: number; updatedAt: string | null; adapterAvailable: boolean;
+  version: number; updatedAt: string | null; adapterAvailable: boolean; loginRequired?:boolean;
 }
 export interface CreatorAccount {
   identity?: { stableId: string; aliases: string[] } | null;
@@ -757,7 +757,7 @@ export interface ModelOperations {
 export const STUDIO_MODEL = "deepseek-flash";
 export interface ModelBudgetSettings { version: number; perDay: number; perMonth: number; updatedAt: string | null; currency: "CNY"; timeZone: "Asia/Hong_Kong";
   hardLimitEnabled: boolean; warningPerDay: number; warningPerMonth: number }
-export interface CollectionOperations { version: number | null; requestedEnabled: boolean | null; runtimeAllowed: boolean; enabled: boolean; state: "ready" | "unavailable"; updatedAt: string | null }
+export interface CollectionOperations { media?:Omit<CollectionOperations,"media">; version: number | null; requestedEnabled: boolean | null; runtimeAllowed: boolean; enabled: boolean; state: "ready" | "unavailable"; updatedAt: string | null }
 export interface RuntimeComponents { checkedAt: string; check: "local_files"; rows: Array<{ id: string; name: string; state: "files_present" | "missing" | "configured" | "invalid" | "not_configured"; detail: string }> }
 export interface StudioBackupStatus { configured: boolean; externalDeclared: boolean; protected: boolean; state: "not_started" | "queued" | "running" | "completed" | "failed";
   last: { id: string; at: string; bytes: number; files: number; externalDeclared: boolean } | null; error: string | null }

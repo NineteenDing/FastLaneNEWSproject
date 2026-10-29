@@ -1,3 +1,5 @@
+import {creatorMediaRelevant} from "./creator-intake.ts";
+import {mediaControlState} from "./media-control.ts";
 import { z } from "zod";
 import { sql, type Tx } from "@aihot/backend/db";
 import { Conflict, audit } from "@aihot/backend/audit";
@@ -11,7 +13,7 @@ import { createDatabaseResourceMonitor } from "./database-resources.ts";
 import type { MediaProcessingStatus } from "../contracts.ts";
 
 import { collectionEnabled } from "@aihot/backend/operations/collection-control";
-export const mediaProcessingEnabled = () => collectionEnabled() && process.env.STUDIO_MEDIA_ENABLED === "true";
+export const mediaProcessingEnabled = () => collectionEnabled() && mediaControlState().enabled;
 type Job = { postId: string; fingerprint: string };
 
 /** One immediate download/recognition/cleanup at a time; no predownload queue. */
@@ -26,6 +28,8 @@ export function createMediaProcessingQueue(options: Parameters<typeof createPlat
     async run(jobs) {
       for (const job of jobs) {
         if (!mediaProcessingEnabled()) throw new QueueDeferred("采集或本地媒体处理已暂停");
+        const [metadata] = await sql`SELECT content FROM studio_creator_posts WHERE id=${job.postId}`;
+        if(!metadata || !creatorMediaRelevant(metadata.content)) { await sql`UPDATE studio_media_jobs SET state='failed',error='标题与简介未通过AI相关性预筛，未下载',updated_at=now() WHERE post_id=${job.postId}`; continue; }
         const [claimed] = await sql`UPDATE studio_media_jobs j SET state = 'running', error = NULL, updated_at = now()
           FROM studio_creator_posts p WHERE j.post_id = ${job.postId} AND j.source_fingerprint = ${job.fingerprint}
             AND p.id = j.post_id AND p.content_fingerprint = j.source_fingerprint AND j.state <> 'ready' RETURNING j.post_id`;
@@ -53,9 +57,10 @@ export async function enqueueMediaProcessing(postId: string, actor: string, opti
   await ensureQueue(mediaProcessingQueue.name, mediaProcessingQueue.options);
   const submit = async (db: Tx) => {
     await db`SELECT pg_advisory_xact_lock(hashtext('studio-topic-media'))`;
-    const [post] = await db`SELECT p.content_fingerprint AS fingerprint, p.content->>'kind' AS kind, c.platform
+    const [post] = await db`SELECT p.content_fingerprint AS fingerprint, p.content->>'kind' AS kind, p.content, c.platform
       FROM studio_creator_posts p JOIN studio_creator_accounts c ON c.id = p.creator_id WHERE p.id = ${postId} FOR UPDATE OF p`;
     if (!post) return null;
+    if(!creatorMediaRelevant(post.content)) throw new Conflict("标题与简介未通过AI相关性预筛，未提交下载或转写");
     if (post.kind !== "video" && !(post.kind === null && post.platform === "bilibili")) throw new Conflict("这条材料不是需要转写的视频");
     if (!['bilibili', 'weibo', 'xhs', 'douyin', 'kuaishou'].includes(post.platform)) throw new Conflict("此平台的媒体适配尚未接通");
     const [saved] = await db`SELECT post_id FROM studio_media_transcripts WHERE post_id = ${postId} AND source_fingerprint = ${post.fingerprint}`;

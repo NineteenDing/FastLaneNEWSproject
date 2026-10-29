@@ -19,6 +19,7 @@ function newKey() {
 export function useAdminAction(layoutId = "admin-layout") {
   const me = useAdminMe(layoutId);
   const revalidator = useRevalidator();
+  const [errorMessage,setErrorMessage]=useState("");
   const [pending, setPending] = useState<string | null>(null);
   const keys = useRef(new Map<string, string>());
 
@@ -33,7 +34,7 @@ export function useAdminAction(layoutId = "admin-layout") {
       // The same command retried after a failure keeps its key, so paid work is not repeated.
       const key = keys.current.get(label) ?? newKey();
       keys.current.set(label, key);
-      setPending(label);
+      setErrorMessage(""); setPending(label);
       try {
         const res = await fetch(path, {
           method,
@@ -54,7 +55,7 @@ export function useAdminAction(layoutId = "admin-layout") {
         // null means failure to callers; an empty success (204) is an empty object.
         return (json ?? {}) as T;
       } catch (error) {
-        toast(error instanceof AdminError ? error.message : "网络错误，请稍后再试", "error");
+        const message=error instanceof AdminError ? error.message : "网络错误，请稍后再试";setErrorMessage(message); toast(message, "error");
         return null;
       } finally {
         setPending(null);
@@ -63,5 +64,5 @@ export function useAdminAction(layoutId = "admin-layout") {
     [me.csrf, revalidator],
   );
 
-  return { run, pending, busy: pending !== null || revalidator.state === "loading" };
+  return { run, pending, error:errorMessage, busy: pending !== null || revalidator.state === "loading" };
 }

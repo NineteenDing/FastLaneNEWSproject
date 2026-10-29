@@ -36,7 +36,8 @@ function overview(platform: CreatorPlatform, row?: Row): PlatformSession {
 /** Safe read model: never return Cookie, ciphertext, login identity or exception details. */
 export async function platformSessions() {
   const rows = await sql<Row[]>`SELECT platform, sealed_cookie, version, updated_at FROM studio_platform_sessions`;
-  return { rows: platformSchema.options.map(platform => overview(platform, rows.find(row => row.platform === platform))) };
+  const failures=await sql<{platform:string;failed:boolean}[]>`SELECT a.platform,bool_or(c.state='login_required' AND c.completed_at>s.updated_at) AS failed FROM studio_creator_accounts a JOIN studio_creator_collection c ON c.creator_id=a.id JOIN studio_platform_sessions s ON s.platform=a.platform GROUP BY a.platform`;
+  return { rows: platformSchema.options.map(platform => ({...overview(platform, rows.find(row => row.platform === platform)),loginRequired:failures.find(f=>f.platform===platform)?.failed??false})) };
 }
 export async function savePlatformSession(platform: string, value: unknown, actor: string) {
   const parsed = platformSchema.parse(platform);

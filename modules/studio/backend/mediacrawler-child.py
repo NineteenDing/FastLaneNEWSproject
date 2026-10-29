@@ -46,6 +46,7 @@ def select_discovered_content(job, identity, question_id=None):
 
 class BrokerTransport(httpx.AsyncBaseTransport):
     async def handle_async_request(self, request):
+        await asyncio.sleep(3)
         body = await request.aread()
         emit({"type": "fetch", "url": str(request.url), "method": request.method,
               "headers": dict(request.headers), "body": base64.b64encode(body).decode()})
@@ -199,6 +200,8 @@ def weibo_date(value):
 
 async def comment_replies(job, roots, parse, root_complete, preview_key, count_key, fetch):
     """Bounded SDK reply samples. Unknown counts and unvisited parents stay incomplete."""
+    if job.get("metadataOnly"):
+        return [], {"complete": False, "repliesComplete": False, "limit": 20}
     selected = roots[:20]
     output = [parse(root) for root in selected]
     coverage = {"complete": root_complete, "repliesComplete": False, "limit": 20}
@@ -300,18 +303,18 @@ async def collect_weibo(job):
     if len(cards) > 30:
         raise PlatformFailure("platform_failed")
     posts = []
-    for card in cards:
+    for card in (cards[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else cards):
         if card.get("card_type") != 9:
             continue
         item = card["mblog"]
         if str(item["user"]["id"]) != job["locator"]:
             raise PlatformFailure("platform_failed")
-        if item.get("isLongText") and not job.get("videoId"):
+        if item.get("isLongText") and not job.get("videoId") and not job.get("metadataOnly"):
             detail = await client.get_note_info_by_id(str(item["id"]))
             if not detail.get("mblog"):
                 raise PlatformFailure("platform_failed")
             item = detail["mblog"]
-        comments = {} if job.get("videoId") else await client.get_note_comments(str(item["id"]), max_id=0)
+        comments = {} if job.get("videoId") or job.get("metadataOnly") else await client.get_note_comments(str(item["id"]), max_id=0)
         rows = comments.get("data") or []
         samples, comment_coverage = await comment_replies(job, rows, weibo_comment,
             comments.get("max_id") == 0 and len(rows) <= 20, "comments", "total_number", None)
@@ -351,7 +354,7 @@ async def collect_xhs(job):
     if len(notes) > 30:
         raise PlatformFailure("platform_failed")
     posts = []
-    for listed in notes:
+    for listed in (notes[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else notes):
         note_id = listed["note_id"]
         token = listed.get("xsec_token", "")
         source = listed.get("xsec_source", "pc_feed")
@@ -361,7 +364,7 @@ async def collect_xhs(job):
             profile["basicInfo"]["nickname"] = item.get("user", {}).get("nickname")
         if not item or item.get("note_id") != note_id or item.get("user", {}).get("user_id") != job["locator"]:
             raise PlatformFailure("platform_failed")
-        comments = {} if job.get("videoId") else await client.get_note_comments(note_id, token)
+        comments = {} if job.get("videoId") or job.get("metadataOnly") else await client.get_note_comments(note_id, token)
         rows = comments.get("comments") or []
         async def fetch_children(root):
             page = await client.get_note_sub_comments(note_id, str(root["id"]), token, num=20)
@@ -446,7 +449,7 @@ async def collect_zhihu(job):
         items = listing["data"]
         if len(items) > 15 or not isinstance(listing["paging"].get("is_end"), bool):
             raise PlatformFailure("platform_failed")
-        for item in items:
+        for item in (items[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else items):
             author = item.get("author", {})
             if item.get("type") != kind or str(author.get("id")) != str(profile["id"]) or not isinstance(item.get("content"), str):
                 raise PlatformFailure("platform_failed")
@@ -471,7 +474,7 @@ async def collect_zhihu(job):
                     parsed = urlsplit(address)
                     if parsed.scheme == "https" and parsed.netloc in ("www.zhihu.com", "zhuanlan.zhihu.com") and parsed.path and not parsed.fragment:
                         parent = {"kind": "column", "url": address, "title": plain(column.get("title"))}
-            comments = {"data": [], "paging": {"is_end": True}} if number(item.get("comment_count")) == 0 else await client.get_root_comments(identity, kind, limit=20)
+            comments = {"data": [], "paging": {"is_end": True}} if job.get("metadataOnly") or number(item.get("comment_count")) == 0 else await client.get_root_comments(identity, kind, limit=20)
             rows = comments["data"]
             async def fetch_children(root):
                 page = await client.get_child_comments(str(root["id"]), limit=20)
@@ -529,7 +532,7 @@ async def collect_tieba(job):
     identities = extractor.extract_creator_thread_id_list_from_api(listing)
     if len(identities) != len(listing["data"]["list"]):
         raise PlatformFailure("platform_failed")
-    for identity in identities:
+    for identity in (identities[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else identities):
         if not identity.isascii() or not identity.isdecimal():
             raise PlatformFailure("platform_failed")
         detail = single_detail if single_detail else await client._get_pc_page_data(identity, page=1)
@@ -630,11 +633,11 @@ async def collect_douyin(job):
     if not isinstance(items, list) or len(items) > 18:
         raise PlatformFailure("platform_failed")
     posts = []
-    for item in items:
+    for item in (items[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else items):
         identity = str(item["aweme_id"])
         if not identity.isascii() or not identity.isdecimal() or item.get("author", {}).get("sec_uid") != job["locator"]:
             raise PlatformFailure("platform_failed")
-        comments = {"status_code": 0, "comments": []} if job.get("videoId") else await client.get_aweme_comments(identity)
+        comments = {"status_code": 0, "comments": []} if job.get("videoId") or job.get("metadataOnly") else await client.get_aweme_comments(identity)
         if comments.get("status_code") != 0:
             raise PlatformFailure("platform_failed")
         rows = comments["comments"] or []
@@ -703,12 +706,12 @@ async def collect_kuaishou(job):
     if not isinstance(videos, list) or len(videos) > 30:
         raise PlatformFailure("platform_failed")
     posts = []
-    for video in videos:
+    for video in (videos[:job.get("metadataLimit", 5)] if job.get("metadataOnly") else videos):
         if video["author"].get("id") != job["locator"]:
             raise PlatformFailure("platform_failed")
         item = video["photo"]
         identity = str(item["id"])
-        comments = {"rootCommentsV2": []} if job.get("videoId") else await client.get_video_comments(identity)
+        comments = {"rootCommentsV2": []} if job.get("videoId") or job.get("metadataOnly") else await client.get_video_comments(identity)
         rows = comments["rootCommentsV2"]
         if not isinstance(rows, list):
             raise PlatformFailure("platform_failed")
@@ -796,10 +799,10 @@ async def collect(job):
                            "commentCoverage": {"complete": False, "repliesComplete": False, "limit": 20}}],
                 "coverage": {"page": 1, "nextPage": None, "complete": True}}
     profile = await client.get_creator_info(int(job["locator"]))
-    listing = await client.get_creator_videos(job["locator"], job["page"], ps=30, order_mode="pubdate")
+    listing = await client.get_creator_videos(job["locator"], job["page"], ps=job.get("metadataLimit", 5) if job.get("metadataOnly") else 30, order_mode="pubdate")
     posts = []
-    for video in listing["list"]["vlist"]:
-        comments = await client.get_video_comments(str(video["aid"]))
+    for video in (listing["list"]["vlist"][:job.get("metadataLimit", 5)] if job.get("metadataOnly") else listing["list"]["vlist"]):
+        comments = {} if job.get("metadataOnly") else await client.get_video_comments(str(video["aid"]))
         replies = comments.get("replies") or []
         async def fetch_children(root):
             page = await client.get_video_level_two_comments(str(video["aid"]), int(root["rpid"]), 1, 20, CommentOrderType.DEFAULT)

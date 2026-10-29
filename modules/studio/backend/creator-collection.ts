@@ -1,3 +1,4 @@
+import {selectCreatorIntake,creatorMediaRelevant} from "./creator-intake.ts";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { sql, type Tx } from "@aihot/backend/db";
@@ -15,6 +16,7 @@ import { bindCreatorIdentity, canonicalCreatorId, lockCreatorIdentity } from "./
 
 import { collectionEnabled } from "@aihot/backend/operations/collection-control";
 export const creatorsCollecting = collectionEnabled;
+class PlatformCooling extends Conflict {}
 
 /** Durable serial queue + original resource admission, shared by the connected platform adapters. */
 export const creatorQueue = defineQueue<{ creatorId: string }>({
@@ -40,6 +42,8 @@ export async function enqueueCreator(id: string, actor: string) {
   if (!creatorsCollecting()) throw new Conflict("采集开关尚未启用，当前未提交采集任务");
   if (creator.archived || !creator.enabled) throw new Conflict("请先恢复并启用这个博主");
   if (!mediaCreatorPlatforms.some(p => p === creator.platform)) throw new Conflict("此平台的MediaCrawler适配尚在接入，不能开始采集");
+  const [cooldown] = await sql`SELECT creator_id FROM studio_creator_collection WHERE state='rate_limited' AND completed_at>now()-interval '6 hours' AND creator_id IN (SELECT id FROM studio_creator_accounts WHERE platform=${creator.platform})`;
+  if(cooldown) throw new PlatformCooling("平台限流冷却中，请等待下次检查；重复点击不会加速恢复");
   const jobId = await enqueueOn(creatorQueue, { creatorId: id }, { singletonKey: id, group: { id: "creator-media" } });
   if (jobId) await audit(actor, "studio.creator.collect", `creator:${id}`, null, null, { queued: true });
   return { queued: !!jobId };
@@ -50,11 +54,13 @@ async function collect(id: string) {
   const claim = await sql.begin(async tx => {
     const [account] = await tx<{ id: string; platform: CreatorPlatform; locator: string; version: number; collector_context: Record<string, string> }[]>`SELECT id, platform, locator, version, collector_context FROM studio_creator_accounts WHERE id = ${id} AND following AND enabled AND NOT archived FOR UPDATE`;
     if (!account || !mediaCreatorPlatforms.some(p => p === account.platform)) return null;
-    const [lease] = await tx<{ next_page: number; next_cursor: string }[]>`INSERT INTO studio_creator_collection (creator_id, run_token, state) VALUES (${id}, ${token}, 'running')
+    const [limited]=await tx`SELECT creator_id FROM studio_creator_collection WHERE state='rate_limited' AND completed_at>now()-interval '6 hours' AND creator_id IN (SELECT id FROM studio_creator_accounts WHERE platform=${account.platform})`;
+    if(limited) return null;
+    const [lease] = await tx<{ next_page: number; next_cursor: string; coverage: {monitorSince?:string} }[]>`INSERT INTO studio_creator_collection (creator_id, run_token, state) VALUES (${id}, ${token}, 'running')
       ON CONFLICT (creator_id) DO UPDATE SET run_token = EXCLUDED.run_token, state = 'running', started_at = now(), completed_at = NULL, error_code = NULL
       WHERE studio_creator_collection.state <> 'running' OR studio_creator_collection.started_at < now() - interval '5 minutes'
-      RETURNING next_page, next_cursor`;
-    return lease ? { ...account, page: lease.next_page, cursor: lease.next_cursor } : null;
+      RETURNING next_page, next_cursor, coverage`;
+    return lease ? { ...account, page: lease.next_page, cursor: lease.next_cursor, coverage:lease.coverage } : null;
   });
   if (!claim) return { state: "skipped" };
   let sessionVersion: number | null = null;
@@ -75,8 +81,8 @@ async function collect(id: string) {
     if (!session.readable) throw new MediaCrawlerFailure("login_required");
     const { profileLocator, ...context } = claim.collector_context;
     const locator = profileLocator ?? claim.locator;
-    const result = await collectMediaCreator({ platform: claim.platform, locator, page: claim.page,
-      cursor: claim.cursor, cookie: session.cookie, context });
+    const result = await collectMediaCreator({ platform: claim.platform, locator, page: 1,
+      cursor: "", metadataOnly: true, metadataLimit: claim.coverage?.monitorSince ? 30 : 5, cookie: session.cookie, context });
     if (result.profile.externalId !== locator) throw new Error("平台返回了其他账号");
     const avatar = await prepareCreatorAvatar(result.profile.avatar);
     return await sql.begin(async tx => {
@@ -102,9 +108,12 @@ async function collect(id: string) {
           FROM studio_image_references WHERE owner = ${`creator-avatar:${accountId}`} ON CONFLICT DO NOTHING`;
         await assets.setReferences(`creator-avatar:${accountId}`, [avatar], tx);
       }
-      for (const post of result.posts) {
-        await saveCreatorContent(tx, accountId, claim.platform, post);
+      const observed = selectCreatorIntake(result.posts, claim.coverage?.monitorSince ?? null, new Date().toISOString());
+      for (const post of observed) {
+        if (creatorMediaRelevant(post)) await saveCreatorContent(tx, accountId, claim.platform, post);
       }
+      const monitorSince = observed[0]?.publishedAt ?? claim.coverage?.monitorSince ?? null;
+      const boundedCoverage = {...result.coverage, page:1, nextPage:null, nextCursor:"", complete:true, scope:"latest-five-monitor", monitorSince, observed:observed.length, accepted:observed.filter(creatorMediaRelevant).length};
       const dates = result.posts.map(p => p.publishedAt).filter((d): d is string => d !== null).sort();
       await tx`UPDATE studio_creator_accounts SET name = ${result.profile.name}, description = ${result.profile.description}, work_count = ${result.profile.workCount},
         follower_count = ${result.profile.followerCount}, profile_state = 'ready', last_checked_at = now(),
@@ -114,9 +123,9 @@ async function collect(id: string) {
           ON CONFLICT (creator_id) DO UPDATE SET run_token = EXCLUDED.run_token, state = 'running', started_at = now()`;
         await tx`UPDATE studio_creator_collection SET state = 'interrupted', completed_at = now() WHERE creator_id = ${id} AND run_token = ${token}`;
       }
-      await tx`UPDATE studio_creator_collection SET state = 'ready', completed_at = now(), next_page = ${result.coverage.nextPage ?? 1},
-        next_cursor = ${result.coverage.nextCursor ?? ""}, coverage = ${tx.json(result.coverage)},
-        next_check_at = now() + ${result.coverage.complete ? 45 : 1} * interval '1 minute' WHERE creator_id = ${accountId} AND run_token = ${token}`;
+      await tx`UPDATE studio_creator_collection SET state = 'ready', completed_at = now(), next_page = 1,
+        next_cursor = '', coverage = ${tx.json(boundedCoverage)},
+        next_check_at = now() + interval '2 hours' WHERE creator_id = ${accountId} AND run_token = ${token}`;
       return { state: "ready", received: result.posts.length, coverage: result.coverage };
     });
   } catch (error) {
@@ -124,7 +133,7 @@ async function collect(id: string) {
     const stopped = await sql.begin(async tx => {
       const stopped = await interrupted(tx);
       if (stopped) return stopped;
-      await tx`UPDATE studio_creator_collection SET state = ${code === "platform_failed" ? "failed" : code}, completed_at = now(), next_check_at = now() + interval '30 minutes', error_code = ${code}
+      await tx`UPDATE studio_creator_collection SET state = ${code === "platform_failed" ? "failed" : code}, completed_at = now(), next_check_at = now() + interval '6 hours', error_code = ${code}
         WHERE creator_id = ${id} AND run_token = ${token}`;
       return null;
     });
@@ -160,10 +169,14 @@ export async function scheduleCreators() {
   const accounts = await sql<{ id: string }[]>`SELECT a.id FROM studio_creator_accounts a LEFT JOIN studio_creator_collection c ON c.creator_id = a.id
     LEFT JOIN studio_platform_sessions login ON login.platform = a.platform
     WHERE a.following AND a.enabled AND NOT a.archived AND a.platform = ANY(${[...mediaCreatorPlatforms]}::text[])
+      AND NOT EXISTS (SELECT 1 FROM studio_creator_collection limited JOIN studio_creator_accounts other ON other.id=limited.creator_id WHERE other.platform=a.platform AND limited.state='rate_limited' AND limited.completed_at>now()-interval '6 hours')
       AND (c.creator_id IS NULL OR c.next_check_at <= now() OR (${renewed})) AND (c.state IS DISTINCT FROM 'login_required' OR (${renewed}))
       AND (c.state IS DISTINCT FROM 'running' OR c.started_at < now() - interval '5 minutes')
     ORDER BY c.next_check_at NULLS FIRST, a.id LIMIT 100`;
   let queued = 0;
-  for (const account of accounts) if ((await enqueueCreator(account.id, "system"))?.queued) queued++;
+  for (const account of accounts) {
+    try { if ((await enqueueCreator(account.id, "system"))?.queued) queued++; }
+    catch(error) { if(!(error instanceof PlatformCooling)) throw error; }
+  }
   return { queued };
 }

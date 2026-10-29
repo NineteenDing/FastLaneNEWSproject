@@ -20,7 +20,7 @@ export type LoginBrowser = { frame(): Promise<Buffer>; session(): Promise<string
 export type LoginBrowserFactory = (platform: CreatorPlatform, signal: AbortSignal) => Promise<LoginBrowser>;
 export class LoginBrowserOpenFailed extends Error {
   readonly cleanupConfirmed: boolean;
-  constructor(cleanupConfirmed: boolean) { super("平台登录页面未能打开，请检查浏览器组件和平台网络"); this.cleanupConfirmed = cleanupConfirmed; }
+  constructor(cleanupConfirmed: boolean, reason: "timeout"|"network"|"component"="component") { super(reason==="timeout" ? "平台页面加载超时，请稍后重试或手动保存Cookie" : reason==="network" ? "服务器暂时无法连接平台登录页，请稍后重试或手动保存Cookie" : "平台登录页面未能打开，请检查浏览器组件和平台网络"); this.cleanupConfirmed = cleanupConfirmed; }
 }
 type State = "waiting" | "saved" | "cancelled" | "expired" | "failed" | "conflict";
 type Login = { id: string; platform: CreatorPlatform; version: number; actor: string; state: State; expiresAt: number; browser: LoginBrowser;
@@ -48,6 +48,7 @@ export function createPlatformLogins(options: { browser: LoginBrowserFactory; ca
       if (Date.now() >= s.expiresAt) { await finish(s, "expired"); return; }
       try {
         const cookie = await s.browser.session();
+        if(s.controller.signal.aborted || s.state !== "waiting") return;
         if (cookie) {
           await savePlatformSession(s.platform, { version: s.version, cookie }, s.actor);
           await finish(s, "saved");
@@ -64,7 +65,9 @@ export function createPlatformLogins(options: { browser: LoginBrowserFactory; ca
   return {
     async start(value: unknown, actor: string) {
       const input = z.object({ platform, version: z.number().int().nonnegative() }).strict().parse(value);
-      if (stopped || opening || [...sessions.values()].some(s => s.state === "waiting" || s.closing && !s.controller.signal.aborted)) throw new Conflict("已有登录窗口正在使用，请先关闭或完成登录");
+      const existing=[...sessions.values()].find(s=>s.platform===input.platform && s.state==="waiting" && !s.controller.signal.aborted);
+      if(existing) return view(existing);
+      if (stopped || opening || [...sessions.values()].some(s => s.state === "waiting" || !!s.closing && !s.controller.signal.aborted)) throw new Conflict("已有登录窗口正在使用，请先关闭或完成登录");
       if (!options.canStart()) throw new Conflict("资源正在恢复或繁忙，请稍后再打开登录窗口");
       opening = true;
       openingFinished = new Promise<void>(resolve => { resolveOpening = resolve; });
@@ -86,6 +89,7 @@ export function createPlatformLogins(options: { browser: LoginBrowserFactory; ca
         if (browser && !cleanupConfirmed) { try { await browser.close(); cleanupConfirmed = true; } catch {} }
         if (claimed && (cleanupConfirmed || error instanceof LoginBrowserOpenFailed && error.cleanupConfirmed)) await releaseExecutionLease(group, id);
         if (error instanceof Conflict) throw error;
+        if(error instanceof LoginBrowserOpenFailed) throw new Conflict(error.message);
         throw new Conflict("登录窗口未能打开，请检查采集组件与平台网络后重试");
       } finally { opening = false; resolveOpening?.(); }
     },
@@ -100,7 +104,7 @@ export function createPlatformLogins(options: { browser: LoginBrowserFactory; ca
       try { await s.browser.action(input); } catch { throw new Conflict("本次登录操作未完成，请重试"); }
       return view(s);
     }); },
-    async cancel(id: string) { const s = get(id); await serial(s, () => s.state === "waiting" ? finish(s, "cancelled") : Promise.resolve()); return view(s); },
+    async cancel(id: string) { const s = get(id); if(s.state === "waiting") { s.controller.abort(); await serial(s,()=>s.state==="waiting" ? finish(s,"cancelled") : Promise.resolve()); } return view(s); },
     async close() { stopped = true; await openingFinished; await Promise.all([...sessions.values()].map(s => serial(s, () => s.state === "waiting" ? finish(s, "cancelled") : Promise.resolve()))); },
   };
 }
